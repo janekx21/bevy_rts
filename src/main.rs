@@ -1,14 +1,11 @@
-use std::f32::consts::PI;
-use std::ops::MulAssign;
-use bevy::diagnostic::{Diagnostic, Diagnostics, FrameTimeDiagnosticsPlugin};
-use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuery};
-use bevy::input::keyboard::KeyboardInput;
-use bevy::math::{const_quat, Mat2, Vec3Swizzles};
+mod fps_plugin;
+
 use bevy::prelude::*;
-use bevy::prelude::StartupStage::PreStartup;
-use bevy::reflect::ReflectRef::Tuple;
-use bevy::render::camera::Camera2d;
-use bevy::utils::tracing::instrument::WithSubscriber;
+use std::f32::consts::PI;
+use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuery};
+use bevy::math::{Mat2, Vec3Swizzles};
+use bevy::render::camera::{Camera2d, RenderTarget};
+use crate::fps_plugin::FpsPlugin;
 
 #[derive(Component)]
 struct Worker{
@@ -26,30 +23,24 @@ struct Tree{
 
 struct TreeChop(Entity);
 
+#[derive(Default)]
+struct Cursor(Vec2);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugin(FpsPlugin)
         .add_startup_system(setup)
+        .init_resource::<Cursor>()
+        .add_system(my_cursor_system)
         .add_system(keyboard_input)
         .add_system(move_workers)
         .add_system(move_camera)
         .add_system(push_apart)
         .add_system(tree_death)
         .add_event::<TreeChop>()
-        .add_plugin(FrameTimeDiagnosticsPlugin)
-        .add_system(text_change)
         // .add_system(animate_worker)
         .run();
-}
-
-fn text_change(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text>) {
-    let mut fps = 0.0;
-    if let Some(fps_diagnostic) = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS) {
-        if let Some(fps_avg) = fps_diagnostic.average() {
-            fps = fps_avg;
-        }
-    }
-    query.single_mut().sections[0].value = format!("fps = {:.1}", fps)
 }
 
 fn setup(mut commands: Commands,
@@ -61,44 +52,6 @@ fn setup(mut commands: Commands,
     commands.spawn_bundle(camera);
 
     commands.spawn_bundle(UiCameraBundle::default());
-
-
-
-
-
-
-
-    commands
-        .spawn_bundle(TextBundle {
-            style: Style {
-                align_self: AlignSelf::Center,
-                position_type: PositionType::Relative,
-                position: Rect {
-                    bottom: Val::Px(10.0),
-                    right: Val::Px(10.0),
-                    ..default()
-                },
-                ..default()
-            },
-            // Use the `Text::with_section` constructor
-            text: Text::with_section(
-                // Accepts a `String` or any type that converts into a `String`, such as `&str`
-                "hello\nbevy!",
-                TextStyle {
-                    font: asset_server.load("fonts/roboto_regular.ttf"),
-                    font_size: 100.0,
-                    color: Color::WHITE,
-                },
-                // Note: You can use `Default::default()` in place of the `TextAlignment`
-                TextAlignment {
-                    horizontal: HorizontalAlign::Center,
-                    ..default()
-                },
-            ),
-            ..default()
-        });
-
-
 
 
 
@@ -263,6 +216,46 @@ fn random_vec2() -> Vec2 {
     Vec2::new(x,y)
 }
 
+
+fn my_cursor_system(
+    // need to get window dimensions
+    window_resource: Res<Windows>,
+    // query to get camera transform
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    mut cursor: ResMut<Cursor>
+) {
+    // get the camera info and transform
+    // assuming there is exactly one main camera entity, so query::single() is OK
+    let (camera, camera_transform) = camera_query.single();
+
+    // get the window that the camera is displaying to (or the primary window)
+    let window = if let RenderTarget::Window(id) = camera.target {
+        window_resource.get(id).unwrap()
+    } else {
+        window_resource.get_primary().unwrap()
+    };
+
+    // check if the cursor is inside the window and get its position
+    if let Some(screen_pos) = window.cursor_position() {
+        // get the size of the window
+        let window_size = Vec2::new(window.width() as f32, window.height() as f32);
+
+        // convert screen position [0..resolution] to ndc [-1..1] (gpu coordinates)
+        let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
+
+        // matrix for undoing the projection and camera transform
+        let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix.inverse();
+
+        // use it to convert ndc to world-space coordinates
+        let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
+
+        // reduce it to a 2D value
+        let world_pos: Vec2 = world_pos.truncate();
+
+        // eprintln!("World coords: {}/{}", world_pos.x, world_pos.y);
+        cursor.0 = world_pos;
+    }
+}
 
 /*
 fn animate_worker(
