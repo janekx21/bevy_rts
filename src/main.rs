@@ -6,6 +6,7 @@ use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuer
 use bevy::math::{Mat2, Vec3Swizzles};
 use bevy::render::camera::{Camera2d, RenderTarget};
 use crate::fps_plugin::FpsPlugin;
+use crate::Selection::Dragging;
 
 #[derive(Component)]
 struct Worker{
@@ -26,6 +27,12 @@ struct TreeChop(Entity);
 #[derive(Default)]
 struct Cursor(Vec2);
 
+#[derive(Component)]
+enum Selection {
+    None,
+    Dragging(Vec2, Vec2),
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -39,7 +46,8 @@ fn main() {
         .add_system(push_apart)
         .add_system(tree_death)
         .add_event::<TreeChop>()
-        // .add_system(animate_worker)
+        .add_system(selection_change)
+        .add_system(selection_visual)
         .run();
 }
 
@@ -53,22 +61,45 @@ fn setup(mut commands: Commands,
 
     commands.spawn_bundle(UiCameraBundle::default());
 
+    let texture_handle = asset_server.load("grass.png");
+    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
+    commands.spawn_bundle(SpriteSheetBundle{
+        texture_atlas: texture_atlas_handle,
+        sprite: TextureAtlasSprite{custom_size: Some(Vec2::new(1000.0, 1000.0)), index: 1, ..default()}
+        , ..default()
+    });
 
 
     let texture_handle = asset_server.load("farmer_red.png");
     let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
-    for x in -1..2 {
-        for y in -1..2 {
+    let box_selector = {
+        let texture_handle = asset_server.load("box_selector.png");
+        let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 1);
+        texture_atlases.add(texture_atlas)
+    };
+
+    let count = 2;
+    for x in -count..count {
+        for y in -count..count {
+            let selector = commands.spawn_bundle(
+                SpriteSheetBundle {
+                    texture_atlas: box_selector.clone(),
+                    ..default()
+                }
+            ).id();
+
             commands
                 .spawn_bundle(SpriteSheetBundle {
                     texture_atlas: texture_atlas_handle.clone(),
                     transform: Transform::from_translation(Vec3::new(x as f32 * 16.0, y as f32 * 16.0, 1.0)),
                     ..default()
                 })
-                .insert(Worker{target: None, wood: 0});
+                .insert(Worker{target: None, wood: 0})
+                .add_child(selector);
         }
     }
 
@@ -101,6 +132,17 @@ fn setup(mut commands: Commands,
             })
             .insert(Tree{resource: 100});
     }
+
+    let texture_handle = asset_server.load("highlighted_boxes.png");
+    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+
+    commands.spawn_bundle(SpriteSheetBundle {
+        texture_atlas: texture_atlas_handle.clone(),
+        transform: Transform::from_xyz(0.0, 0.0, 2.0),
+        sprite: TextureAtlasSprite{index: 1, custom_size: Some(Vec2::ONE), color: Color::rgba(1.0, 1.0, 1.0, 0.5), ..default()},
+        ..default()
+    }).insert(Selection::None);
 }
 
 fn keyboard_input(keys: Res<Input<KeyCode>>) {
@@ -176,7 +218,7 @@ fn move_camera(mut query: Query<&mut Transform, With<Camera2d>>, keys: Res<Input
 fn tree_death(mut query: Query<(Entity, &mut Tree)>, mut tree_chop_event: EventReader<TreeChop>, mut commands: Commands) {
     for event in tree_chop_event.iter() {
         if let Ok(mut tree) = query.get_component_mut::<Tree>(event.0) {
-            if tree.resource <= 0 {
+            if tree.resource == 0 {
                 commands.entity(event.0).despawn();
             } else {
                 tree.resource-=1;
@@ -257,14 +299,39 @@ fn my_cursor_system(
     }
 }
 
-/*
-fn animate_worker(
-    texture_atlases: Res<Assets<TextureAtlas>>,
-    mut query: Query<(&Worker, &mut TextureAtlasSprite, &Handle<TextureAtlas>)>,
-) {
-    for (_, mut sprite, texture_atlas_handle) in query.iter_mut() {
-        let texture_atlas = texture_atlases.get(texture_atlas_handle).unwrap();
-        sprite.index = (sprite.index + 1) % texture_atlas.len();
+
+fn selection_change(mut query: Query<&mut Selection>, cursor: Res<Cursor>, input: Res<Input<MouseButton>>) {
+    let mut selection = query.single_mut();
+
+    match *selection {
+        Selection::None => {
+            if input.pressed(MouseButton::Left) {
+                *selection = Dragging(cursor.0, cursor.0)
+            }
+        }
+        Dragging(start, _end) => {
+            *selection = if input.pressed(MouseButton::Left) {
+                Dragging(start, cursor.0)
+            } else {
+                // Selection::Some(Rect{left: start.x, right: end.x, bottom: start.y, top: end.y})
+                // todo select stuff
+                Selection::None
+            }
+        }
     }
 }
- */
+
+fn selection_visual(mut query: Query<(&mut Transform, &mut TextureAtlasSprite, &Selection)>) {
+    let (mut transform , mut sprite, selection) = query.single_mut();
+
+    transform.scale = Vec3::ZERO;
+
+    if let Dragging(start, end) = *selection {
+        let center = (start + end) * 0.5;
+        let size = Vec2::abs(start - end);
+
+        transform.translation = center.extend(2.0);
+        transform.scale = size.extend(1.0);
+        sprite.index = 1;
+    }
+}
