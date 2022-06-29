@@ -1,12 +1,21 @@
 use bevy::prelude::*;
 use crate::{ApplySelection, Barrack, Tree, TreeChop};
 use crate::util::{find_nearest, random_vec2};
+use crate::worker::Action::{CollectResource, DepositResource, Idle};
+
+pub enum Action {
+    Idle,
+    MoveToPosition(Vec2),
+    CollectResource(Entity),
+    DepositResource(Entity),
+}
 
 #[derive(Component)]
 pub struct Worker {
-    target: Option<Entity>,
+    action: Action,
     wood: u32,
     is_selected: bool,
+    next_move: Vec2,
 }
 
 #[derive(Component)]
@@ -33,10 +42,10 @@ pub fn worker_selection(mut child_query: Query<(&Parent, &mut Visibility), With<
     }
 }
 
-pub fn spawn_worker(mut commands: &mut Commands,
+pub fn spawn_worker(commands: &mut Commands,
                     asset_server: &Res<AssetServer>,
-                    mut texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
-                    pos: Vec2
+                    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+                    pos: Vec2,
 ) {
     let texture_handle = asset_server.load("farmer_red.png");
     let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12);
@@ -50,62 +59,75 @@ pub fn spawn_worker(mut commands: &mut Commands,
 
     let selector = commands.spawn_bundle(
         SpriteSheetBundle {
-            texture_atlas: box_selector.clone(),
+            texture_atlas: box_selector,
             ..default()
         }
     ).insert(SelectionBox).id();
 
     commands
         .spawn_bundle(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle.clone(),
+            texture_atlas: texture_atlas_handle,
             transform: Transform::from_translation(pos.extend(1.0)),
             ..default()
         })
-        .insert(Worker{target: None, wood: 0, is_selected: false})
+        .insert(Worker { action: Idle, wood: 0, is_selected: false, next_move: Vec2::ZERO })
         .add_child(selector);
 }
 
 pub fn move_workers(
-    mut worker_query: Query<(&mut Worker, &mut Transform)>,
+    mut worker_query: Query<(&mut Worker, &Transform)>,
     barrack_query: Query<(Entity, &Transform), (With<Barrack>, Without<Worker>)>,
     tree_query: Query<(Entity, &Transform), (With<Tree>, Without<Worker>)>,
     mut tree_chop_event: EventWriter<TreeChop>,
-    entity_query: Query<Entity>
+    entity_query: Query<Entity>,
 ) {
-    for (mut worker, mut transform) in worker_query.iter_mut() {
+    for (mut worker, transform) in worker_query.iter_mut() {
         let worker_pos = transform.translation.truncate();
-        if let Some(target) = worker.target {
-            let mut delta = Vec2::ZERO;
-            if let Ok(barrack_transform) = barrack_query.get_component::<Transform>(target) {
-                // move towards barrack
-                delta = barrack_transform.translation.truncate() - worker_pos;
-                if delta.length() < 10.0 {
-                    // found target
-                    worker.target = None;
-                    worker.wood = 0;
+        match worker.action {
+            Idle => {
+                if worker.wood > 0 {
+                    worker.action = find_nearest(barrack_query.iter(), worker_pos)
+                        .map(|f| f.0)
+                        .map_or(Idle, DepositResource);
+                } else {
+                    worker.action = find_nearest(tree_query.iter(), worker_pos)
+                        .map(|f| f.0)
+                        .map_or(Idle, CollectResource);
                 }
             }
-            if let Ok((tree_entity, tree_transform)) = tree_query.get(target) {
-                // move towards tree
-                delta = tree_transform.translation.truncate() - worker_pos;
-                if delta.length() < 10.0 {
-                    worker.wood = 10;
-                    tree_chop_event.send(TreeChop(tree_entity));
-                    worker.target = None;
+            Action::MoveToPosition(_) => {}
+            CollectResource(target) => {
+                if let Ok((tree_entity, tree_transform)) = tree_query.get(target) {
+                    // move towards tree
+                    let target_pos = tree_transform.translation.truncate();
+                    worker.next_move = (target_pos - worker_pos).normalize();
+                    if Vec2::distance_squared(target_pos, worker_pos) < 10.0 * 10.0 {
+                        tree_chop_event.send(TreeChop(tree_entity));
+                        worker.wood = 1;
+                        worker.action = Idle;
+                    }
+                } else if entity_query.get(target).is_err() {
+                    worker.action = Idle;
                 }
             }
-            transform.translation += (random_vec2() * 0.1 + delta.clamp_length_max(1.0)).extend(0.0);
-            if let Err(_) = entity_query.get(target) {
-                worker.target = None
-            }
-        } else {
-            // no target
-
-            if worker.wood > 0 {
-                worker.target = find_nearest(barrack_query.iter().into(), worker_pos).map(|f|f.0);
-            } else {
-                worker.target = find_nearest(tree_query.iter().into(), worker_pos).map(|f|f.0);
+            DepositResource(target) => {
+                if let Ok(barrack_transform) = barrack_query.get_component::<Transform>(target) {
+                    // move towards barrack
+                    let target_pos = barrack_transform.translation.truncate();
+                    worker.next_move = (target_pos - worker_pos).normalize();
+                    if Vec2::distance_squared(target_pos, worker_pos) < 20.0 * 20.0 {
+                        // found target
+                        worker.wood = 0;
+                        worker.action = Idle;
+                    }
+                }
             }
         }
+    }
+}
+
+pub fn move_worker_todo(mut query: Query<(&mut Transform, &Worker)>, time: Res<Time>) {
+    for (mut transform, worker) in query.iter_mut() {
+        transform.translation += (random_vec2() * 0.1 + worker.next_move.clamp_length_max(1.0)).extend(0.0) * time.delta_seconds() * 60.0;
     }
 }
