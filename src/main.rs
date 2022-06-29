@@ -1,15 +1,18 @@
 mod fps_plugin;
-mod worker;
 mod util;
+mod worker;
 
-use bevy::prelude::*;
-use std::f32::consts::PI;
-use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuery};
-use bevy::math::{Mat2, Vec3Swizzles};
-use bevy::render::camera::{Camera2d, RenderTarget};
 use crate::fps_plugin::FpsPlugin;
+use crate::worker::{
+    worker_move, worker_next_action, worker_select, worker_selection_box_visible, worker_spawn,
+    Worker,
+};
 use crate::Selection::Dragging;
-use crate::worker::{move_workers, spawn_worker, Worker, worker_selecter, worker_selection, move_worker_todo};
+use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuery};
+use bevy::math::Mat2;
+use bevy::prelude::*;
+use bevy::render::camera::{Camera2d, RenderTarget};
+use std::f32::consts::PI;
 
 #[derive(Component)]
 pub struct Barrack;
@@ -47,7 +50,7 @@ fn main() {
         .init_resource::<Cursor>()
         .add_system(my_cursor_system)
         .add_system(keyboard_input)
-        .add_system(move_workers)
+        .add_system(worker_next_action)
         .add_system(move_camera)
         .add_system(push_apart)
         .add_system(tree_death)
@@ -55,15 +58,16 @@ fn main() {
         .add_event::<ApplySelection>()
         .add_system(selection_change)
         .add_system(selection_visual)
-        .add_system(worker_selection)
-        .add_system(worker_selecter)
-        .add_system(move_worker_todo)
+        .add_system(worker_selection_box_visible)
+        .add_system(worker_select)
+        .add_system(worker_move)
         .run();
 }
 
-fn setup(mut commands: Commands,
-         asset_server: Res<AssetServer>,
-         mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     let mut camera = OrthographicCameraBundle::new_2d();
     camera.orthographic_projection.scale = 0.5;
@@ -77,46 +81,23 @@ fn setup(mut commands: Commands,
 
     commands.spawn_bundle(SpriteSheetBundle {
         texture_atlas: texture_atlas_handle,
-        sprite: TextureAtlasSprite { custom_size: Some(Vec2::new(1000.0, 1000.0)), index: 1, ..default() }
-        ,
+        sprite: TextureAtlasSprite {
+            custom_size: Some(Vec2::new(1000.0, 1000.0)),
+            index: 1,
+            ..default()
+        },
         ..default()
     });
 
-
-    /*
-    let texture_handle = asset_server.load("farmer_red.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
-    let box_selector = {
-        let texture_handle = asset_server.load("box_selector.png");
-        let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 1);
-        texture_atlases.add(texture_atlas)
-    };
-     */
-
-    let count = 4;
+    let count = 20;
     for x in -count..count {
         for y in -count..count {
-            /*
-            let selector = commands.spawn_bundle(
-                SpriteSheetBundle {
-                    texture_atlas: box_selector.clone(),
-                    ..default()
-                }
-            ).insert(SelectionBox).id();
-
-            commands
-                .spawn_bundle(SpriteSheetBundle {
-                    texture_atlas: texture_atlas_handle.clone(),
-                    transform: Transform::from_translation(Vec3::new(x as f32 * 16.0, y as f32 * 16.0, 1.0)),
-                    ..default()
-                })
-                .insert(Worker{target: None, wood: 0, is_selected: false})
-                .add_child(selector);
-             */
-
-            spawn_worker(&mut commands, &asset_server, &mut texture_atlases, Vec2::new(x as f32 * 16.0, y as f32 * 16.0))
+            worker_spawn(
+                &mut commands,
+                &asset_server,
+                &mut texture_atlases,
+                Vec2::new(x as f32 * 16.0, y as f32 * 16.0),
+            )
         }
     }
 
@@ -143,8 +124,13 @@ fn setup(mut commands: Commands,
         commands
             .spawn_bundle(SpriteSheetBundle {
                 texture_atlas: texture_atlas_handle.clone(),
-                transform: Transform::from_translation(rotation.mul_vec2(Vec2::X * 16.0 * 12.0).extend(0.0)),
-                sprite: TextureAtlasSprite { index: 1, ..default() },
+                transform: Transform::from_translation(
+                    rotation.mul_vec2(Vec2::X * 16.0 * 12.0).extend(0.0),
+                ),
+                sprite: TextureAtlasSprite {
+                    index: 1,
+                    ..default()
+                },
                 ..default()
             })
             .insert(Tree { resource: 100 });
@@ -154,12 +140,19 @@ fn setup(mut commands: Commands,
     let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
-    commands.spawn_bundle(SpriteSheetBundle {
-        texture_atlas: texture_atlas_handle.clone(),
-        transform: Transform::from_xyz(0.0, 0.0, 2.0),
-        sprite: TextureAtlasSprite { index: 1, custom_size: Some(Vec2::ONE), color: Color::rgba(1.0, 1.0, 1.0, 0.5), ..default() },
-        ..default()
-    }).insert(Selection::None);
+    commands
+        .spawn_bundle(SpriteSheetBundle {
+            texture_atlas: texture_atlas_handle,
+            transform: Transform::from_xyz(0.0, 0.0, 2.0),
+            sprite: TextureAtlasSprite {
+                index: 1,
+                custom_size: Some(Vec2::ONE),
+                color: Color::rgba(1.0, 1.0, 1.0, 0.5),
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Selection::None);
 }
 
 fn keyboard_input(keys: Res<Input<KeyCode>>) {
@@ -168,8 +161,11 @@ fn keyboard_input(keys: Res<Input<KeyCode>>) {
     }
 }
 
-
-fn move_camera(mut query: Query<&mut Transform, With<Camera2d>>, keys: Res<Input<KeyCode>>, time: Res<Time>) {
+fn move_camera(
+    mut query: Query<&mut Transform, With<Camera2d>>,
+    keys: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
     let mut dir = Vec2::ZERO;
 
     if keys.pressed(KeyCode::Left) {
@@ -185,10 +181,15 @@ fn move_camera(mut query: Query<&mut Transform, With<Camera2d>>, keys: Res<Input
         dir -= Vec2::Y
     }
     let mut camera_transform = query.single_mut();
-    camera_transform.translation += (dir.clamp_length_max(1.0) * 100.0 * time.delta_seconds()).extend(0.0);
+    camera_transform.translation +=
+        (dir.clamp_length_max(1.0) * 100.0 * time.delta_seconds()).extend(0.0);
 }
 
-fn tree_death(mut query: Query<(Entity, &mut Tree)>, mut tree_chop_event: EventReader<TreeChop>, mut commands: Commands) {
+fn tree_death(
+    mut query: Query<(Entity, &mut Tree)>,
+    mut tree_chop_event: EventReader<TreeChop>,
+    mut commands: Commands,
+) {
     for event in tree_chop_event.iter() {
         if let Ok(mut tree) = query.get_component_mut::<Tree>(event.0) {
             if tree.resource == 0 {
@@ -252,8 +253,12 @@ fn my_cursor_system(
     }
 }
 
-
-fn selection_change(mut query: Query<&mut Selection>, cursor: Res<Cursor>, input: Res<Input<MouseButton>>, mut apply_selection: EventWriter<ApplySelection>) {
+fn selection_change(
+    mut query: Query<&mut Selection>,
+    cursor: Res<Cursor>,
+    input: Res<Input<MouseButton>>,
+    mut apply_selection: EventWriter<ApplySelection>,
+) {
     let mut selection = query.single_mut();
 
     match *selection {

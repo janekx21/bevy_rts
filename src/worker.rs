@@ -1,7 +1,7 @@
-use bevy::prelude::*;
-use crate::{ApplySelection, Barrack, Tree, TreeChop};
 use crate::util::{find_nearest, random_vec2};
 use crate::worker::Action::{CollectResource, DepositResource, Idle};
+use crate::{ApplySelection, Barrack, Tree, TreeChop};
+use bevy::prelude::*;
 
 pub enum Action {
     Idle,
@@ -21,7 +21,10 @@ pub struct Worker {
 #[derive(Component)]
 pub struct SelectionBox;
 
-pub fn worker_selecter(mut apply_selection: EventReader<ApplySelection>, mut query: Query<(&Transform, &mut Worker)>) {
+pub fn worker_select(
+    mut apply_selection: EventReader<ApplySelection>,
+    mut query: Query<(&Transform, &mut Worker)>,
+) {
     for event in apply_selection.iter() {
         let min = Vec2::min(event.start, event.end);
         let max = Vec2::max(event.start, event.end);
@@ -34,7 +37,10 @@ pub fn worker_selecter(mut apply_selection: EventReader<ApplySelection>, mut que
     }
 }
 
-pub fn worker_selection(mut child_query: Query<(&Parent, &mut Visibility), With<SelectionBox>>, parent_query: Query<&Worker>) {
+pub fn worker_selection_box_visible(
+    mut child_query: Query<(&Parent, &mut Visibility), With<SelectionBox>>,
+    parent_query: Query<&Worker>,
+) {
     for (par, mut vis) in child_query.iter_mut() {
         if let Ok(parent) = parent_query.get(par.0) {
             vis.is_visible = parent.is_selected;
@@ -42,10 +48,11 @@ pub fn worker_selection(mut child_query: Query<(&Parent, &mut Visibility), With<
     }
 }
 
-pub fn spawn_worker(commands: &mut Commands,
-                    asset_server: &Res<AssetServer>,
-                    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
-                    pos: Vec2,
+pub fn worker_spawn(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+    pos: Vec2,
 ) {
     let texture_handle = asset_server.load("farmer_red.png");
     let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12);
@@ -57,12 +64,13 @@ pub fn spawn_worker(commands: &mut Commands,
         texture_atlases.add(texture_atlas)
     };
 
-    let selector = commands.spawn_bundle(
-        SpriteSheetBundle {
+    let selector = commands
+        .spawn_bundle(SpriteSheetBundle {
             texture_atlas: box_selector,
             ..default()
-        }
-    ).insert(SelectionBox).id();
+        })
+        .insert(SelectionBox)
+        .id();
 
     commands
         .spawn_bundle(SpriteSheetBundle {
@@ -70,11 +78,16 @@ pub fn spawn_worker(commands: &mut Commands,
             transform: Transform::from_translation(pos.extend(1.0)),
             ..default()
         })
-        .insert(Worker { action: Idle, wood: 0, is_selected: false, next_move: Vec2::ZERO })
+        .insert(Worker {
+            action: Idle,
+            wood: 0,
+            is_selected: false,
+            next_move: Vec2::ZERO,
+        })
         .add_child(selector);
 }
 
-pub fn move_workers(
+pub fn worker_next_action(
     mut worker_query: Query<(&mut Worker, &Transform)>,
     barrack_query: Query<(Entity, &Transform), (With<Barrack>, Without<Worker>)>,
     tree_query: Query<(Entity, &Transform), (With<Tree>, Without<Worker>)>,
@@ -85,6 +98,7 @@ pub fn move_workers(
         let worker_pos = transform.translation.truncate();
         match worker.action {
             Idle => {
+                worker.next_move = Vec2::ZERO;
                 if worker.wood > 0 {
                     worker.action = find_nearest(barrack_query.iter(), worker_pos)
                         .map(|f| f.0)
@@ -126,8 +140,11 @@ pub fn move_workers(
     }
 }
 
-pub fn move_worker_todo(mut query: Query<(&mut Transform, &Worker)>, time: Res<Time>) {
+pub fn worker_move(mut query: Query<(&mut Transform, &Worker)>, time: Res<Time>) {
     for (mut transform, worker) in query.iter_mut() {
-        transform.translation += (random_vec2() * 0.1 + worker.next_move.clamp_length_max(1.0)).extend(0.0) * time.delta_seconds() * 60.0;
+        transform.translation += (random_vec2() * 0.1 + worker.next_move.clamp_length_max(1.0))
+            .extend(0.0)
+            * time.delta_seconds()
+            * 60.0;
     }
 }
