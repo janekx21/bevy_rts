@@ -1,4 +1,6 @@
 mod fps_plugin;
+mod worker;
+mod util;
 
 use bevy::prelude::*;
 use std::f32::consts::PI;
@@ -7,22 +9,22 @@ use bevy::math::{Mat2, Vec3Swizzles};
 use bevy::render::camera::{Camera2d, RenderTarget};
 use crate::fps_plugin::FpsPlugin;
 use crate::Selection::Dragging;
+use crate::worker::{move_workers, spawn_worker, Worker, worker_selecter, worker_selection};
 
 #[derive(Component)]
-struct Worker{
-    target: Option<Entity>,
-    wood: u32
-}
+pub struct Barrack;
 
 #[derive(Component)]
-struct Barrack;
-
-#[derive(Component)]
-struct Tree{
+pub struct Tree{
     resource: u32
 }
 
-struct TreeChop(Entity);
+pub struct TreeChop(Entity);
+
+pub struct ApplySelection {
+    start: Vec2,
+    end: Vec2,
+}
 
 #[derive(Default)]
 struct Cursor(Vec2);
@@ -35,6 +37,10 @@ enum Selection {
 
 fn main() {
     App::new()
+        .insert_resource(WindowDescriptor{
+            title: "Bevy RTS".to_string(),
+                ..default()
+        })
         .add_plugins(DefaultPlugins)
         .add_plugin(FpsPlugin)
         .add_startup_system(setup)
@@ -46,8 +52,11 @@ fn main() {
         .add_system(push_apart)
         .add_system(tree_death)
         .add_event::<TreeChop>()
+        .add_event::<ApplySelection>()
         .add_system(selection_change)
         .add_system(selection_visual)
+        .add_system(worker_selection)
+        .add_system(worker_selecter)
         .run();
 }
 
@@ -72,6 +81,7 @@ fn setup(mut commands: Commands,
     });
 
 
+    /*
     let texture_handle = asset_server.load("farmer_red.png");
     let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
@@ -81,16 +91,18 @@ fn setup(mut commands: Commands,
         let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 1);
         texture_atlases.add(texture_atlas)
     };
+     */
 
-    let count = 2;
+    let count = 4;
     for x in -count..count {
         for y in -count..count {
+            /*
             let selector = commands.spawn_bundle(
                 SpriteSheetBundle {
                     texture_atlas: box_selector.clone(),
                     ..default()
                 }
-            ).id();
+            ).insert(SelectionBox).id();
 
             commands
                 .spawn_bundle(SpriteSheetBundle {
@@ -98,8 +110,11 @@ fn setup(mut commands: Commands,
                     transform: Transform::from_translation(Vec3::new(x as f32 * 16.0, y as f32 * 16.0, 1.0)),
                     ..default()
                 })
-                .insert(Worker{target: None, wood: 0})
+                .insert(Worker{target: None, wood: 0, is_selected: false})
                 .add_child(selector);
+             */
+
+            spawn_worker(&mut commands, &asset_server, &mut texture_atlases, Vec2::new(x as f32 * 16.0, y as f32 * 16.0 ))
         }
     }
 
@@ -151,50 +166,6 @@ fn keyboard_input(keys: Res<Input<KeyCode>>) {
     }
 }
 
-fn move_workers(
-    mut worker_query: Query<(&mut Worker, &mut Transform)>,
-    barrack_query: Query<(Entity, &Transform), (With<Barrack>, Without<Worker>)>,
-    tree_query: Query<(Entity, &Transform), (With<Tree>, Without<Worker>)>,
-    mut tree_chop_event: EventWriter<TreeChop>,
-    entity_query: Query<Entity>
-) {
-    for (mut worker, mut transform) in worker_query.iter_mut() {
-        let worker_pos = transform.translation.xy();
-        if let Some(target) = worker.target {
-            let mut delta = Vec2::ZERO;
-            if let Ok(barrack_transform) = barrack_query.get_component::<Transform>(target) {
-                // move towards barrack
-                delta = barrack_transform.translation.xy() - worker_pos;
-                if delta.length() < 10.0 {
-                    // found target
-                    worker.target = None;
-                    worker.wood = 0;
-                }
-            }
-            if let Ok((tree_entity, tree_transform)) = tree_query.get(target) {
-                // move towards tree
-                delta = tree_transform.translation.xy() - worker_pos;
-                if delta.length() < 10.0 {
-                    worker.wood = 10;
-                    tree_chop_event.send(TreeChop(tree_entity));
-                    worker.target = None;
-                }
-            }
-            transform.translation += (random_vec2() * 0.1 + delta.clamp_length_max(1.0)).extend(0.0);
-            if let Err(_) = entity_query.get(target) {
-                worker.target = None
-            }
-        } else {
-            // no target
-
-            if worker.wood > 0 {
-                worker.target = find_nearest(barrack_query.iter().into(), worker_pos).map(|f|f.0);
-            } else {
-                worker.target = find_nearest(tree_query.iter().into(), worker_pos).map(|f|f.0);
-            }
-        }
-    }
-}
 
 fn move_camera(mut query: Query<&mut Transform, With<Camera2d>>, keys: Res<Input<KeyCode>>, time: Res<Time>) {
     let mut dir = Vec2::ZERO;
@@ -239,26 +210,6 @@ fn push_apart(mut query: Query<&mut Transform, With<Worker>>) {
     }
 }
 
-fn find_nearest<F: WorldQuery> (transform_query: QueryIter<(Entity, &Transform), (EntityFetch, ReadFetch<Transform>), F>, worker_pos: Vec2) -> Option<(Entity, Vec2)>  where F::Fetch: FilterFetch{
-    transform_query.fold(None, |acc_option, (e, t)| Some(if let Some(acc) = acc_option {
-        if Vec2::distance(worker_pos, t.translation.xy()) < Vec2::distance(worker_pos, acc.1)
-        {
-            (e, t.translation.xy())
-        } else {
-            acc
-        }
-    } else {
-        (e, t.translation.xy())
-    }))
-}
-
-fn random_vec2() -> Vec2 {
-    let x = rand::random::<f32>() * 2.0 - 1.0;
-    let y = rand::random::<f32>() * 2.0 - 1.0;
-    Vec2::new(x,y)
-}
-
-
 fn my_cursor_system(
     // need to get window dimensions
     window_resource: Res<Windows>,
@@ -300,7 +251,7 @@ fn my_cursor_system(
 }
 
 
-fn selection_change(mut query: Query<&mut Selection>, cursor: Res<Cursor>, input: Res<Input<MouseButton>>) {
+fn selection_change(mut query: Query<&mut Selection>, cursor: Res<Cursor>, input: Res<Input<MouseButton>>, mut apply_selection: EventWriter<ApplySelection>) {
     let mut selection = query.single_mut();
 
     match *selection {
@@ -309,12 +260,11 @@ fn selection_change(mut query: Query<&mut Selection>, cursor: Res<Cursor>, input
                 *selection = Dragging(cursor.0, cursor.0)
             }
         }
-        Dragging(start, _end) => {
+        Dragging(start, end) => {
             *selection = if input.pressed(MouseButton::Left) {
                 Dragging(start, cursor.0)
             } else {
-                // Selection::Some(Rect{left: start.x, right: end.x, bottom: start.y, top: end.y})
-                // todo select stuff
+                apply_selection.send(ApplySelection{start, end });
                 Selection::None
             }
         }
