@@ -4,8 +4,8 @@ mod worker;
 
 use crate::fps_plugin::FpsPlugin;
 use crate::worker::{
-    worker_move, worker_next_action, worker_select, worker_selection_box_visible, worker_spawn,
-    Worker,
+    move_to_position, worker_move, worker_next_action, worker_select, worker_selection_box_visible,
+    worker_spawn, Worker,
 };
 use crate::Selection::Dragging;
 use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuery};
@@ -30,7 +30,7 @@ pub struct ApplySelection {
 }
 
 #[derive(Default)]
-struct Cursor(Vec2);
+pub struct Cursor(Vec2);
 
 #[derive(Component)]
 enum Selection {
@@ -61,6 +61,8 @@ fn main() {
         .add_system(worker_selection_box_visible)
         .add_system(worker_select)
         .add_system(worker_move)
+        .add_system(move_to_position)
+        .add_system(button_system)
         .run();
 }
 
@@ -89,7 +91,7 @@ fn setup(
         ..default()
     });
 
-    let count = 20;
+    let count = 2;
     for x in -count..count {
         for y in -count..count {
             worker_spawn(
@@ -153,6 +155,66 @@ fn setup(
             ..default()
         })
         .insert(Selection::None);
+
+    commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Px(100.0)),
+                ..default()
+            },
+            ..default()
+        })
+        .with_children(|parent| {
+            parent
+                .spawn_bundle(ButtonBundle {
+                    style: Style {
+                        margin: Rect::all(Val::Auto),
+                        padding: Rect::all(Val::Px(16.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    color: NORMAL_BUTTON.into(),
+                    ..default()
+                })
+                .with_children(|parent| {
+                    parent.spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "Button",
+                            TextStyle {
+                                font: asset_server.load("fonts/roboto_regular.ttf"),
+                                font_size: 32.0,
+                                color: Color::WHITE,
+                            },
+                            Default::default(),
+                        ),
+                        ..default()
+                    });
+                });
+        });
+}
+
+const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
+const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
+const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
+
+fn button_system(
+    mut interaction_query: Query<
+        (&Interaction, &mut UiColor, &mut Style),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    for (interaction, mut color, mut style) in interaction_query.iter_mut() {
+        *color = match *interaction {
+            Interaction::Clicked => PRESSED_BUTTON.into(),
+            Interaction::Hovered => HOVERED_BUTTON.into(),
+            Interaction::None => NORMAL_BUTTON.into(),
+        };
+        style.border = match *interaction {
+            Interaction::Hovered => Rect::all(Val::Px(2.0)),
+            _ => Rect::default(),
+        };
+    }
 }
 
 fn keyboard_input(keys: Res<Input<KeyCode>>) {

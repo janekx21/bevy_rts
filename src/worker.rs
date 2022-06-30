@@ -1,6 +1,6 @@
 use crate::util::{find_nearest, random_vec2};
-use crate::worker::Action::{CollectResource, DepositResource, Idle};
-use crate::{ApplySelection, Barrack, Tree, TreeChop};
+use crate::worker::Action::{CollectResource, DepositResource, Idle, MoveToPosition};
+use crate::{ApplySelection, Barrack, Cursor, Tree, TreeChop};
 use bevy::prelude::*;
 
 pub enum Action {
@@ -109,7 +109,9 @@ pub fn worker_next_action(
                         .map_or(Idle, CollectResource);
                 }
             }
-            Action::MoveToPosition(_) => {}
+            Action::MoveToPosition(pos) => {
+                worker.next_move = pos - worker_pos;
+            }
             CollectResource(target) => {
                 if let Ok((tree_entity, tree_transform)) = tree_query.get(target) {
                     // move towards tree
@@ -146,5 +148,17 @@ pub fn worker_move(mut query: Query<(&mut Transform, &Worker)>, time: Res<Time>)
             .extend(0.0)
             * time.delta_seconds()
             * 60.0;
+    }
+}
+
+pub fn move_to_position(
+    mut query: Query<&mut Worker>,
+    input: Res<Input<MouseButton>>,
+    cursor: Res<Cursor>,
+) {
+    if input.just_pressed(MouseButton::Right) {
+        for mut worker in query.iter_mut().filter(|w| w.is_selected) {
+            worker.action = MoveToPosition(cursor.0);
+        }
     }
 }
