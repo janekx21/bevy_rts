@@ -38,6 +38,19 @@ enum Selection {
     Dragging(Vec2, Vec2),
 }
 
+#[derive(Component)]
+struct SpawnMenu;
+
+#[derive(Default)]
+struct Stats {
+    wood: u32,
+}
+
+pub struct DepositWood(u32);
+
+#[derive(Component)]
+struct StatsText;
+
 fn main() {
     App::new()
         .insert_resource(WindowDescriptor {
@@ -48,6 +61,7 @@ fn main() {
         .add_plugin(FpsPlugin)
         .add_startup_system(setup)
         .init_resource::<Cursor>()
+        .init_resource::<Stats>()
         .add_system(my_cursor_system)
         .add_system(keyboard_input)
         .add_system(worker_next_action)
@@ -56,6 +70,7 @@ fn main() {
         .add_system(tree_death)
         .add_event::<TreeChop>()
         .add_event::<ApplySelection>()
+        .add_event::<DepositWood>()
         .add_system(selection_change)
         .add_system(selection_visual)
         .add_system(worker_selection_box_visible)
@@ -63,6 +78,9 @@ fn main() {
         .add_system(worker_move)
         .add_system(move_to_position)
         .add_system(button_system)
+        .add_system(spawn_menu_tween)
+        .add_system(deposit_wood_stat)
+        .add_system(stat_text)
         .run();
 }
 
@@ -164,6 +182,7 @@ fn setup(
             },
             ..default()
         })
+        .insert(SpawnMenu)
         .with_children(|parent| {
             parent
                 .spawn_bundle(ButtonBundle {
@@ -192,6 +211,37 @@ fn setup(
                     });
                 });
         });
+
+    commands
+        .spawn_bundle(NodeBundle {
+            color: Color::OLIVE.into(),
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Px(0.0),
+                    ..default()
+                },
+                padding: Rect::all(Val::Px(16.0)),
+                ..default()
+            },
+            ..default()
+        })
+        .with_children(|parent| {
+            parent
+                .spawn_bundle(TextBundle {
+                    text: Text::with_section(
+                        "stats go here",
+                        TextStyle {
+                            font: asset_server.load("fonts/roboto_regular.ttf"),
+                            font_size: 32.0,
+                            color: Color::WHITE,
+                        },
+                        Default::default(),
+                    ),
+                    ..default()
+                })
+                .insert(StatsText);
+        });
 }
 
 const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
@@ -214,6 +264,24 @@ fn button_system(
             Interaction::Hovered => Rect::all(Val::Px(2.0)),
             _ => Rect::default(),
         };
+    }
+}
+
+fn spawn_menu_tween(mut query: Query<&mut Style, With<SpawnMenu>>) {
+    for mut style in query.iter_mut() {
+        // style.position.top = Val::Px(100.0);
+    }
+}
+
+fn deposit_wood_stat(mut deposit_wood: EventReader<DepositWood>, mut stats: ResMut<Stats>) {
+    for event in deposit_wood.iter() {
+        stats.wood += event.0
+    }
+}
+
+fn stat_text(mut query: Query<&mut Text, With<StatsText>>, stats: Res<Stats>) {
+    for mut text in query.iter_mut() {
+        text.sections[0].value = format!("wood = {}", stats.wood)
     }
 }
 

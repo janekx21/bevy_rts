@@ -1,6 +1,6 @@
 use crate::util::{find_nearest, random_vec2};
 use crate::worker::Action::{CollectResource, DepositResource, Idle, MoveToPosition};
-use crate::{ApplySelection, Barrack, Cursor, Tree, TreeChop};
+use crate::{ApplySelection, Barrack, Cursor, DepositWood, Tree, TreeChop};
 use bevy::prelude::*;
 
 pub enum Action {
@@ -93,6 +93,7 @@ pub fn worker_next_action(
     tree_query: Query<(Entity, &Transform), (With<Tree>, Without<Worker>)>,
     mut tree_chop_event: EventWriter<TreeChop>,
     entity_query: Query<Entity>,
+    mut deposit_wood: EventWriter<DepositWood>,
 ) {
     for (mut worker, transform) in worker_query.iter_mut() {
         let worker_pos = transform.translation.truncate();
@@ -135,6 +136,7 @@ pub fn worker_next_action(
                         // found target
                         worker.wood = 0;
                         worker.action = Idle;
+                        deposit_wood.send(DepositWood(1))
                     }
                 }
             }
