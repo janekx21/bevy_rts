@@ -8,11 +8,15 @@ use crate::worker::{
     worker_spawn, Worker,
 };
 use crate::Selection::Dragging;
-use bevy::ecs::query::{EntityFetch, FilterFetch, QueryIter, ReadFetch, WorldQuery};
+use bevy::ecs::query::{QueryIter, ReadFetch, WorldQuery};
 use bevy::math::Mat2;
 use bevy::prelude::*;
-use bevy::render::camera::{Camera2d, RenderTarget};
+use bevy::render::camera::RenderTarget;
+use bevy::window::WindowRef;
+use bevy_tweening::lens::{TransformPositionLens, UiPositionLens};
+use bevy_tweening::*;
 use std::f32::consts::PI;
+use std::time::Duration;
 
 #[derive(Component)]
 pub struct Barrack;
@@ -29,7 +33,7 @@ pub struct ApplySelection {
     end: Vec2,
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct Cursor(Vec2);
 
 #[derive(Component)]
@@ -41,7 +45,7 @@ enum Selection {
 #[derive(Component)]
 struct SpawnMenu;
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 struct Stats {
     wood: u32,
 }
@@ -53,11 +57,14 @@ struct StatsText;
 
 fn main() {
     App::new()
-        .insert_resource(WindowDescriptor {
-            title: "Bevy RTS".to_string(),
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "RTS".into(),
+                ..default()
+            }),
             ..default()
-        })
-        .add_plugins(DefaultPlugins)
+        }))
+        .add_plugin(TweeningPlugin)
         .add_plugin(FpsPlugin)
         .add_startup_system(setup)
         .init_resource::<Cursor>()
@@ -89,17 +96,16 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
-    let mut camera = OrthographicCameraBundle::new_2d();
-    camera.orthographic_projection.scale = 0.5;
-    commands.spawn_bundle(camera);
-
-    commands.spawn_bundle(UiCameraBundle::default());
+    let mut camera = Camera2dBundle::default();
+    camera.projection.scale = 0.5;
+    commands.spawn(camera);
 
     let texture_handle = asset_server.load("grass.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1);
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
-    commands.spawn_bundle(SpriteSheetBundle {
+    commands.spawn(SpriteSheetBundle {
         texture_atlas: texture_atlas_handle,
         sprite: TextureAtlasSprite {
             custom_size: Some(Vec2::new(1000.0, 1000.0)),
@@ -122,12 +128,13 @@ fn setup(
     }
 
     let texture_handle = asset_server.load("barracks_red.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 5);
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 5, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
     for i in (-300..300).step_by(600) {
         commands
-            .spawn_bundle(SpriteSheetBundle {
+            .spawn(SpriteSheetBundle {
                 texture_atlas: texture_atlas_handle.clone(),
                 transform: Transform::from_translation(Vec3::new(i as f32, 0.0, 0.0)),
                 ..default()
@@ -136,13 +143,14 @@ fn setup(
     }
 
     let texture_handle = asset_server.load("trees.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1);
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
     for i in (0..360).step_by(15) {
         let rotation = Mat2::from_angle(i as f32 * PI / 180.0);
         commands
-            .spawn_bundle(SpriteSheetBundle {
+            .spawn(SpriteSheetBundle {
                 texture_atlas: texture_atlas_handle.clone(),
                 transform: Transform::from_translation(
                     rotation.mul_vec2(Vec2::X * 16.0 * 12.0).extend(0.0),
@@ -157,11 +165,12 @@ fn setup(
     }
 
     let texture_handle = asset_server.load("highlighted_boxes.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1);
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
     commands
-        .spawn_bundle(SpriteSheetBundle {
+        .spawn(SpriteSheetBundle {
             texture_atlas: texture_atlas_handle,
             transform: Transform::from_xyz(0.0, 0.0, 2.0),
             sprite: TextureAtlasSprite {
@@ -175,9 +184,10 @@ fn setup(
         .insert(Selection::None);
 
     commands
-        .spawn_bundle(NodeBundle {
+        .spawn(NodeBundle {
             style: Style {
                 size: Size::new(Val::Percent(100.0), Val::Px(100.0)),
+                position_type: PositionType::Absolute,
                 ..default()
             },
             ..default()
@@ -185,27 +195,26 @@ fn setup(
         .insert(SpawnMenu)
         .with_children(|parent| {
             parent
-                .spawn_bundle(ButtonBundle {
+                .spawn(ButtonBundle {
                     style: Style {
-                        margin: Rect::all(Val::Auto),
-                        padding: Rect::all(Val::Px(16.0)),
+                        margin: UiRect::all(Val::Auto),
+                        padding: UiRect::all(Val::Px(16.0)),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
                         ..default()
                     },
-                    color: NORMAL_BUTTON.into(),
+                    background_color: NORMAL_BUTTON.into(),
                     ..default()
                 })
                 .with_children(|parent| {
-                    parent.spawn_bundle(TextBundle {
-                        text: Text::with_section(
+                    parent.spawn(TextBundle {
+                        text: Text::from_section(
                             "Button",
                             TextStyle {
                                 font: asset_server.load("fonts/roboto_regular.ttf"),
                                 font_size: 32.0,
                                 color: Color::WHITE,
                             },
-                            Default::default(),
                         ),
                         ..default()
                     });
@@ -213,30 +222,26 @@ fn setup(
         });
 
     commands
-        .spawn_bundle(NodeBundle {
-            color: Color::OLIVE.into(),
+        .spawn(NodeBundle {
+            background_color: Color::OLIVE.into(),
             style: Style {
                 position_type: PositionType::Absolute,
-                position: Rect {
-                    top: Val::Px(0.0),
-                    ..default()
-                },
-                padding: Rect::all(Val::Px(16.0)),
+                position: UiRect::default(),
+                padding: UiRect::all(Val::Px(16.0)),
                 ..default()
             },
             ..default()
         })
         .with_children(|parent| {
             parent
-                .spawn_bundle(TextBundle {
-                    text: Text::with_section(
+                .spawn(TextBundle {
+                    text: Text::from_section(
                         "stats go here",
                         TextStyle {
                             font: asset_server.load("fonts/roboto_regular.ttf"),
                             font_size: 32.0,
                             color: Color::WHITE,
                         },
-                        Default::default(),
                     ),
                     ..default()
                 })
@@ -250,7 +255,7 @@ const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
 
 fn button_system(
     mut interaction_query: Query<
-        (&Interaction, &mut UiColor, &mut Style),
+        (&Interaction, &mut BackgroundColor, &mut Style),
         (Changed<Interaction>, With<Button>),
     >,
 ) {
@@ -261,15 +266,37 @@ fn button_system(
             Interaction::None => NORMAL_BUTTON.into(),
         };
         style.border = match *interaction {
-            Interaction::Hovered => Rect::all(Val::Px(2.0)),
-            _ => Rect::default(),
+            Interaction::Hovered => UiRect::all(Val::Px(2.0)),
+            _ => UiRect::default(),
         };
     }
 }
 
-fn spawn_menu_tween(mut query: Query<&mut Style, With<SpawnMenu>>) {
+fn spawn_menu_tween(
+    mut query: Query<&mut Style, With<SpawnMenu>>,
+    time: Res<Time>,
+    windows: Query<&Window>,
+    mut var: Local<f32>,
+) {
+    let win = windows.single();
+    let is_hidden = if let Some(position) = win.cursor_position() {
+        position.y < 100.0
+    } else {
+        true
+    };
+    *var += time.delta_seconds() * if is_hidden { -1.0 } else { 1.0 } / 0.2;
+    *var = var.clamp(0.0, 1.0);
+
     for mut style in query.iter_mut() {
-        // style.position.top = Val::Px(100.0);
+        style.position.bottom = Val::Px(ease_in_out_cubic(*var) * -100.0);
+    }
+}
+
+fn ease_in_out_cubic(x: f32) -> f32 {
+    if x < 0.5 {
+        4.0 * x * x * x
+    } else {
+        1.0 - f32::powf(-2.0 * x + 2.0, 3.0) / 2.0
     }
 }
 
@@ -310,6 +337,9 @@ fn move_camera(
     if keys.pressed(KeyCode::Down) {
         dir -= Vec2::Y
     }
+
+    dir.clamp_length_max(1.0);
+
     let mut camera_transform = query.single_mut();
     camera_transform.translation +=
         (dir.clamp_length_max(1.0) * 100.0 * time.delta_seconds()).extend(0.0);
@@ -345,7 +375,7 @@ fn push_apart(mut query: Query<&mut Transform, With<Worker>>) {
 
 fn my_cursor_system(
     // need to get window dimensions
-    window_resource: Res<Windows>,
+    windows: Query<&Window>,
     // query to get camera transform
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
     mut cursor: ResMut<Cursor>,
@@ -355,10 +385,12 @@ fn my_cursor_system(
     let (camera, camera_transform) = camera_query.single();
 
     // get the window that the camera is displaying to (or the primary window)
-    let window = if let RenderTarget::Window(id) = camera.target {
-        window_resource.get(id).unwrap()
-    } else {
-        window_resource.get_primary().unwrap()
+    let window = match camera.target {
+        RenderTarget::Window(window_ref) => match window_ref {
+            WindowRef::Entity(e) => windows.get(e).unwrap(),
+            WindowRef::Primary => windows.single(),
+        },
+        _ => windows.single(),
     };
 
     // check if the cursor is inside the window and get its position
@@ -370,7 +402,7 @@ fn my_cursor_system(
         let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
 
         // matrix for undoing the projection and camera transform
-        let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix.inverse();
+        let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix().inverse();
 
         // use it to convert ndc to world-space coordinates
         let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));

@@ -1,17 +1,18 @@
 [package]
 name = "bevy_rts"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy = { version = "0.7.0", features = ["wayland"] } # "dynamic",
+bevy = { version = "0.10", features = ["wayland"] } # "dynamic",
 rand = "0.8.5"
+bevy_tweening = "0.7"
 
 # Enable only a small amount of optimization in debug mode
-[profile.dev]
-opt-level = 1
+#[profile.dev]
+#opt-level = 1
 
 # Enable high optimizations for dependencies (incl. Bevy), but not for our code:
 [profile.dev.package."*"]

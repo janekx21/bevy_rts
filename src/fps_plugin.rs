@@ -8,27 +8,25 @@ struct FpsMarker;
 
 impl Plugin for FpsPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_plugin(FrameTimeDiagnosticsPlugin)
+        app.add_plugin(FrameTimeDiagnosticsPlugin)
             .add_startup_system(plugin_init)
             .add_system(text_change);
     }
 }
 fn plugin_init(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
-        .spawn_bundle(TextBundle {
+        .spawn(TextBundle {
             style: Style {
                 align_self: AlignSelf::FlexStart,
                 position_type: PositionType::Absolute,
-                position: Rect {
+                position: UiRect {
                     right: Val::Px(10.0),
                     top: Val::Px(10.0),
                     ..default()
                 },
                 ..default()
             },
-            // Use the `Text::with_section` constructor
-            text: Text::with_section(
+            text: Text::from_section(
                 // Accepts a `String` or any type that converts into a `String`, such as `&str`
                 "fps = ?",
                 TextStyle {
@@ -36,10 +34,10 @@ fn plugin_init(mut commands: Commands, asset_server: Res<AssetServer>) {
                     font_size: 32.0,
                     color: Color::WHITE,
                 },
-                default()
             ),
             ..default()
-        }).insert(FpsMarker);
+        })
+        .insert(FpsMarker);
 }
 
 fn text_change(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text, With<FpsMarker>>) {
@@ -51,4 +49,3 @@ fn text_change(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text, With<F
     }
     query.single_mut().sections[0].value = format!("fps = {:.1}", fps)
 }
-

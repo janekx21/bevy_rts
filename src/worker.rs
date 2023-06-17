@@ -42,8 +42,12 @@ pub fn worker_selection_box_visible(
     parent_query: Query<&Worker>,
 ) {
     for (par, mut vis) in child_query.iter_mut() {
-        if let Ok(parent) = parent_query.get(par.0) {
-            vis.is_visible = parent.is_selected;
+        if let Ok(parent) = parent_query.get(par.get()) {
+            *vis = if parent.is_selected {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
         }
     }
 }
@@ -55,17 +59,19 @@ pub fn worker_spawn(
     pos: Vec2,
 ) {
     let texture_handle = asset_server.load("farmer_red.png");
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12);
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
     let box_selector = {
         let texture_handle = asset_server.load("box_selector.png");
-        let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 1);
+        let texture_atlas =
+            TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 1, None, None);
         texture_atlases.add(texture_atlas)
     };
 
     let selector = commands
-        .spawn_bundle(SpriteSheetBundle {
+        .spawn(SpriteSheetBundle {
             texture_atlas: box_selector,
             ..default()
         })
@@ -73,7 +79,7 @@ pub fn worker_spawn(
         .id();
 
     commands
-        .spawn_bundle(SpriteSheetBundle {
+        .spawn(SpriteSheetBundle {
             texture_atlas: texture_atlas_handle,
             transform: Transform::from_translation(pos.extend(1.0)),
             ..default()
@@ -101,6 +107,7 @@ pub fn worker_next_action(
             Idle => {
                 worker.next_move = Vec2::ZERO;
                 if worker.wood > 0 {
+                    let i = barrack_query.iter();
                     worker.action = find_nearest(barrack_query.iter(), worker_pos)
                         .map(|f| f.0)
                         .map_or(Idle, DepositResource);
