@@ -1,6 +1,6 @@
 use bevy::ecs::query::ReadOnlyWorldQuery;
 
-use crate::{Entity, QueryIter, ReadFetch, Transform, Vec2, WorldQuery};
+use crate::{Entity, QueryIter, Transform, Vec2};
 
 pub fn find_nearest<F: ReadOnlyWorldQuery>(
     transform_query: QueryIter<(Entity, &Transform), F>,

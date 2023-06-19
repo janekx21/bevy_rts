@@ -8,15 +8,14 @@ use crate::worker::{
     worker_spawn, Worker,
 };
 use crate::Selection::Dragging;
-use bevy::ecs::query::{QueryIter, ReadFetch, WorldQuery};
+use bevy::ecs::query::QueryIter;
+use bevy::input::mouse::MouseMotion;
 use bevy::math::Mat2;
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::window::WindowRef;
-use bevy_tweening::lens::{TransformPositionLens, UiPositionLens};
 use bevy_tweening::*;
 use std::f32::consts::PI;
-use std::time::Duration;
 
 #[derive(Component)]
 pub struct Barrack;
@@ -55,6 +54,9 @@ pub struct DepositWood(u32);
 #[derive(Component)]
 struct StatsText;
 
+#[derive(Component)]
+struct SpawnButton;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -85,6 +87,7 @@ fn main() {
         .add_system(worker_move)
         .add_system(move_to_position)
         .add_system(button_system)
+        .add_system(spawn_button_system)
         .add_system(spawn_menu_tween)
         .add_system(deposit_wood_stat)
         .add_system(stat_text)
@@ -115,7 +118,7 @@ fn setup(
         ..default()
     });
 
-    let count = 2;
+    let count = 5;
     for x in -count..count {
         for y in -count..count {
             worker_spawn(
@@ -218,7 +221,8 @@ fn setup(
                         ),
                         ..default()
                     });
-                });
+                })
+                .insert(SpawnButton);
         });
 
     commands
@@ -268,6 +272,14 @@ fn button_system(
         style.border = match *interaction {
             Interaction::Hovered => UiRect::all(Val::Px(2.0)),
             _ => UiRect::default(),
+        };
+    }
+}
+
+fn spawn_button_system(query: Query<(&Interaction), (Changed<Interaction>, With<SpawnButton>)>) {
+    for (interaction) in query.iter() {
+        if *interaction == Interaction::Clicked {
+            println!("Clicked!");
         };
     }
 }
@@ -322,27 +334,39 @@ fn move_camera(
     mut query: Query<&mut Transform, With<Camera2d>>,
     keys: Res<Input<KeyCode>>,
     time: Res<Time>,
+    mut motion_evr: EventReader<MouseMotion>,
+    buttons: Res<Input<MouseButton>>,
 ) {
-    let mut dir = Vec2::ZERO;
+    let mut dir_keyboard = Vec2::ZERO;
 
     if keys.pressed(KeyCode::Left) {
-        dir -= Vec2::X
+        dir_keyboard -= Vec2::X
     }
     if keys.pressed(KeyCode::Right) {
-        dir += Vec2::X
+        dir_keyboard += Vec2::X
     }
     if keys.pressed(KeyCode::Up) {
-        dir += Vec2::Y
+        dir_keyboard += Vec2::Y
     }
     if keys.pressed(KeyCode::Down) {
-        dir -= Vec2::Y
+        dir_keyboard -= Vec2::Y
     }
 
-    dir.clamp_length_max(1.0);
+    // todo move to own system
+    let dir_mouse = motion_evr
+        .iter()
+        .map(|e| e.delta)
+        .fold(Vec2::ZERO, |x, y| x + y)
+        * 0.6 // slow down a little
+        * if buttons.pressed(MouseButton::Right) {
+            Vec2::new(-1.0, 1.0)
+        } else {
+            Vec2::ZERO
+        };
 
     let mut camera_transform = query.single_mut();
     camera_transform.translation +=
-        (dir.clamp_length_max(1.0) * 100.0 * time.delta_seconds()).extend(0.0);
+        (dir_keyboard.clamp_length_max(1.0) * 100.0 * time.delta_seconds() + dir_mouse).extend(0.0);
 }
 
 fn tree_death(

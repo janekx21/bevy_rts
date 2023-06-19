@@ -107,7 +107,6 @@ pub fn worker_next_action(
             Idle => {
                 worker.next_move = Vec2::ZERO;
                 if worker.wood > 0 {
-                    let i = barrack_query.iter();
                     worker.action = find_nearest(barrack_query.iter(), worker_pos)
                         .map(|f| f.0)
                         .map_or(Idle, DepositResource);
