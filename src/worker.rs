@@ -1,6 +1,6 @@
 use crate::util::find_nearest;
 use crate::worker::Action::{Chop, CollectResource, DepositResource, Idle, MoveToPosition};
-use crate::{ApplySelection, Barrack, Cursor, DepositWood, Tree, TreeChop};
+use crate::{ApplySelection, Barrack, Cursor, DepositWood, Tree, TreeChop, YSort};
 use bevy::math::Vec2Swizzles;
 use bevy::prelude::*;
 
@@ -56,6 +56,7 @@ pub fn worker_spawn(
             transform: Transform::from_translation(pos.extend(1.0)),
             ..default()
         })
+        .insert(YSort)
         .insert(Worker {
             action: Idle,
             wood: 0,

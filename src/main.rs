@@ -60,6 +60,9 @@ struct StatsText;
 #[derive(Component)]
 struct SpawnButton;
 
+#[derive(Component)]
+struct YSort;
+
 fn main() {
     App::new()
         .add_plugins(
@@ -100,6 +103,7 @@ fn main() {
         .add_system(spawn_menu_tween)
         .add_system(deposit_wood_stat)
         .add_system(stat_text)
+        .add_system(ysort_system)
         .run();
 }
 
@@ -132,7 +136,7 @@ fn setup(
                     flip_y: rand::random::<bool>(),
                     ..default()
                 },
-                transform: Transform::from_translation(pos.extend(0.)).with_rotation(
+                transform: Transform::from_translation(pos.extend(100.0)).with_rotation(
                     Quat::from_axis_angle(Vec3::Z, rand::random::<f32>().round() * PI * 0.5),
                 ),
                 ..default()
@@ -171,6 +175,7 @@ fn setup(
                 transform: Transform::from_translation(Vec3::new(i as f32, 0.0, 0.0)),
                 ..default()
             })
+            .insert(YSort)
             .insert(Barrack);
     }
 
@@ -286,6 +291,7 @@ fn spawn_tree(
             },
             ..default()
         })
+        .insert(YSort)
         .insert(Tree { resource: 100 });
 }
 
@@ -524,5 +530,11 @@ fn selection_visual(mut query: Query<(&mut Transform, &mut TextureAtlasSprite, &
         transform.translation = center.extend(2.0);
         transform.scale = size.extend(1.0);
         sprite.index = 1;
+    }
+}
+
+fn ysort_system(mut query: Query<&mut Transform, With<YSort>>) {
+    for mut transform in query.iter_mut() {
+        transform.translation.z = 200.0 - transform.translation.y * 0.0001;
     }
 }
