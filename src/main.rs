@@ -18,6 +18,7 @@ use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
 use std::f32::consts::PI;
 use util::random_vec2;
+use worker::{worker_animation, worker_vel};
 
 #[derive(Component)]
 pub struct Barrack;
@@ -90,7 +91,9 @@ fn main() {
         .add_system(selection_visual)
         .add_system(worker_selection_box_visible)
         .add_system(worker_select)
+        .add_system(worker_vel)
         .add_system(worker_move)
+        .add_system(worker_animation)
         .add_system(move_to_position)
         .add_system(button_system)
         .add_system(spawn_button_system)
@@ -118,7 +121,7 @@ fn setup(
         for y in 0..100 {
             let pos = Vec2::new(x as f32, y as f32) * 16. - Vec2::ONE * 16. * 50.;
 
-            let height = fbm_simplex_2d(pos * 0.002, 8, 2.0, 0.5) / 2.;
+            let height = fbm_simplex_2d(pos * 0.003, 8, 2.0, 0.5) / 2.;
 
             commands.spawn(SpriteSheetBundle {
                 texture_atlas: texture_atlas_handle.clone(),
@@ -134,6 +137,12 @@ fn setup(
                 ),
                 ..default()
             });
+
+            if height >= 0.1 && height <= 0.3 {
+                if rand::random::<i32>() % 8 == 0 {
+                    spawn_tree(pos, &mut commands, &asset_server, &mut texture_atlases);
+                }
+            }
         }
     }
 
@@ -165,26 +174,10 @@ fn setup(
             .insert(Barrack);
     }
 
-    let texture_handle = asset_server.load("trees.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
     for i in (0..360).step_by(15) {
         let rotation = Mat2::from_angle(i as f32 * PI / 180.0);
-        commands
-            .spawn(SpriteSheetBundle {
-                texture_atlas: texture_atlas_handle.clone(),
-                transform: Transform::from_translation(
-                    rotation.mul_vec2(Vec2::X * 16.0 * 12.0).extend(0.0),
-                ),
-                sprite: TextureAtlasSprite {
-                    index: 1,
-                    ..default()
-                },
-                ..default()
-            })
-            .insert(Tree { resource: 100 });
+        let pos = rotation.mul_vec2(Vec2::X * 16.0 * 12.0);
+        spawn_tree(pos, &mut commands, &asset_server, &mut texture_atlases);
     }
 
     let texture_handle = asset_server.load("highlighted_boxes.png");
@@ -271,6 +264,29 @@ fn setup(
                 })
                 .insert(StatsText);
         });
+}
+
+fn spawn_tree(
+    pos: Vec2,
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+) {
+    let texture_handle = asset_server.load("trees.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    commands
+        .spawn(SpriteSheetBundle {
+            texture_atlas: texture_atlas_handle.clone(),
+            transform: Transform::from_translation(pos.extend(1.0)),
+            sprite: TextureAtlasSprite {
+                index: 1,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Tree { resource: 100 });
 }
 
 const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
@@ -422,7 +438,7 @@ fn push_apart(mut query: Query<&mut Transform, With<Worker>>) {
     while let Some([mut a, mut b]) = combinations.fetch_next() {
         let delta = (b.translation - a.translation) / 12.0;
         if delta.length() < 1.0 {
-            let push = delta.normalize() / delta.length();
+            let push = delta.normalize() * (1. - delta.length()) * 2.0;
             a.translation -= push;
             b.translation += push;
         }
