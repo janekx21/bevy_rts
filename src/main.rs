@@ -15,7 +15,9 @@ use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::window::WindowRef;
 use bevy_tweening::*;
+use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
 use std::f32::consts::PI;
+use util::random_vec2;
 
 #[derive(Component)]
 pub struct Barrack;
@@ -59,13 +61,17 @@ struct SpawnButton;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "RTS".into(),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "RTS".into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
+        )
         .add_plugin(TweeningPlugin)
         .add_plugin(FpsPlugin)
         .add_startup_system(setup)
@@ -108,24 +114,38 @@ fn setup(
         TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
-    commands.spawn(SpriteSheetBundle {
-        texture_atlas: texture_atlas_handle,
-        sprite: TextureAtlasSprite {
-            custom_size: Some(Vec2::new(1000.0, 1000.0)),
-            index: 1,
-            ..default()
-        },
-        ..default()
-    });
+    for x in 0..100 {
+        for y in 0..100 {
+            let pos = Vec2::new(x as f32, y as f32) * 16. - Vec2::ONE * 16. * 50.;
 
-    let count = 5;
+            let height = fbm_simplex_2d(pos * 0.002, 8, 2.0, 0.5) / 2.;
+
+            commands.spawn(SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle.clone(),
+                sprite: TextureAtlasSprite {
+                    //custom_size: Some(Vec2::new(1000.0, 1000.0)),
+                    index: ((height / 2. + 0.5) * 5.).floor() as usize,
+                    flip_x: rand::random::<bool>(),
+                    flip_y: rand::random::<bool>(),
+                    ..default()
+                },
+                transform: Transform::from_translation(pos.extend(0.)).with_rotation(
+                    Quat::from_axis_angle(Vec3::Z, rand::random::<f32>().round() * PI * 0.5),
+                ),
+                ..default()
+            });
+        }
+    }
+
+    let count = 2;
     for x in -count..count {
         for y in -count..count {
+            let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
             worker_spawn(
                 &mut commands,
                 &asset_server,
                 &mut texture_atlases,
-                Vec2::new(x as f32 * 16.0, y as f32 * 16.0),
+                pos + simplex_noise_2d(pos) * 100.,
             )
         }
     }
@@ -135,7 +155,7 @@ fn setup(
         TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 5, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
 
-    for i in (-300..300).step_by(600) {
+    for i in (-300..300).step_by(50) {
         commands
             .spawn(SpriteSheetBundle {
                 texture_atlas: texture_atlas_handle.clone(),
@@ -212,7 +232,7 @@ fn setup(
                 .with_children(|parent| {
                     parent.spawn(TextBundle {
                         text: Text::from_section(
-                            "Button",
+                            "Spawn Worker",
                             TextStyle {
                                 font: asset_server.load("fonts/roboto_regular.ttf"),
                                 font_size: 32.0,
@@ -276,10 +296,22 @@ fn button_system(
     }
 }
 
-fn spawn_button_system(query: Query<(&Interaction), (Changed<Interaction>, With<SpawnButton>)>) {
-    for (interaction) in query.iter() {
+fn spawn_button_system(
+    query: Query<&Interaction, (Changed<Interaction>, With<SpawnButton>)>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+) {
+    for interaction in query.iter() {
         if *interaction == Interaction::Clicked {
-            println!("Clicked!");
+            for _ in 0..20 {
+                worker_spawn(
+                    &mut commands,
+                    &asset_server,
+                    &mut texture_atlases,
+                    Vec2::new(0.0, 0.0) + random_vec2() * 10.0,
+                )
+            }
         };
     }
 }
@@ -351,6 +383,7 @@ fn move_camera(
     if keys.pressed(KeyCode::Down) {
         dir_keyboard -= Vec2::Y
     }
+    let move_keyboard = dir_keyboard.clamp_length_max(1.0) * 200.0 * time.delta_seconds();
 
     // todo move to own system
     let dir_mouse = motion_evr
@@ -365,8 +398,7 @@ fn move_camera(
         };
 
     let mut camera_transform = query.single_mut();
-    camera_transform.translation +=
-        (dir_keyboard.clamp_length_max(1.0) * 100.0 * time.delta_seconds() + dir_mouse).extend(0.0);
+    camera_transform.translation += (move_keyboard + dir_mouse).round().extend(0.0);
 }
 
 fn tree_death(
@@ -388,9 +420,9 @@ fn tree_death(
 fn push_apart(mut query: Query<&mut Transform, With<Worker>>) {
     let mut combinations = query.iter_combinations_mut();
     while let Some([mut a, mut b]) = combinations.fetch_next() {
-        let delta = b.translation - a.translation;
-        if delta.length() < 12.0 {
-            let push = delta.normalize() * 0.8;
+        let delta = (b.translation - a.translation) / 12.0;
+        if delta.length() < 1.0 {
+            let push = delta.normalize() / delta.length();
             a.translation -= push;
             b.translation += push;
         }
