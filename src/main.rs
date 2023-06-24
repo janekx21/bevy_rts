@@ -1,12 +1,10 @@
 mod fps_plugin;
+mod lumberjack;
+mod unit;
 mod util;
-mod worker;
-
 use crate::fps_plugin::FpsPlugin;
-use crate::worker::{
-    move_to_position, worker_move, worker_next_action, worker_select, worker_selection_box_visible,
-    worker_spawn, Worker,
-};
+use crate::lumberjack::*;
+use crate::unit::*;
 use crate::Selection::Dragging;
 use bevy::ecs::query::QueryIter;
 use bevy::input::mouse::MouseMotion;
@@ -18,23 +16,18 @@ use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
 use std::f32::consts::PI;
 use util::random_vec2;
-use worker::{worker_animation, worker_vel};
 
+// buildings
 #[derive(Component)]
 pub struct Barrack;
 
+// resources
 #[derive(Component)]
 pub struct Tree {
     resource: u32,
 }
 
-pub struct TreeChop(Entity);
-
-pub struct ApplySelection {
-    start: Vec2,
-    end: Vec2,
-}
-
+// ui components
 #[derive(Default, Resource)]
 pub struct Cursor(Vec2);
 
@@ -43,7 +36,6 @@ enum Selection {
     None,
     Dragging(Vec2, Vec2),
 }
-
 #[derive(Component)]
 struct SpawnMenu;
 
@@ -52,16 +44,23 @@ struct Stats {
     wood: u32,
 }
 
-pub struct DepositWood(u32);
-
 #[derive(Component)]
 struct StatsText;
 
 #[derive(Component)]
 struct SpawnButton;
 
+// render components
 #[derive(Component)]
 struct YSort;
+
+// events
+pub struct TreeChopEvent(Entity);
+pub struct DepositWoodEvent(u32);
+pub struct ApplySelectionEvent {
+    start: Vec2,
+    end: Vec2,
+}
 
 fn main() {
     App::new()
@@ -81,29 +80,29 @@ fn main() {
         .add_startup_system(setup)
         .init_resource::<Cursor>()
         .init_resource::<Stats>()
-        .add_system(my_cursor_system)
+        .add_event::<TreeChopEvent>()
+        .add_event::<ApplySelectionEvent>()
+        .add_event::<DepositWoodEvent>()
+        .add_system(cursor_world_position)
         .add_system(keyboard_input)
-        .add_system(worker_next_action)
         .add_system(move_camera)
-        .add_system(push_apart)
         .add_system(tree_death)
-        .add_event::<TreeChop>()
-        .add_event::<ApplySelection>()
-        .add_event::<DepositWood>()
         .add_system(selection_change)
         .add_system(selection_visual)
-        .add_system(worker_selection_box_visible)
-        .add_system(worker_select)
-        .add_system(worker_vel)
-        .add_system(worker_move)
-        .add_system(worker_animation)
-        .add_system(move_to_position)
-        .add_system(button_system)
-        .add_system(spawn_button_system)
+        .add_system(unit_push_apart)
+        .add_system(selection_visible)
+        .add_system(unit_select)
+        .add_system(unit_vel)
+        .add_system(unit_move)
+        .add_system(lumberjack_animation)
+        .add_system(lumberjack_next_action)
+        .add_system(lumberjack_move_to_position_action)
+        .add_system(button_style)
+        .add_system(lumberjack_spawn_button)
         .add_system(spawn_menu_tween)
         .add_system(deposit_wood_stat)
         .add_system(stat_text)
-        .add_system(ysort_system)
+        .add_system(ysort)
         .run();
 }
 
@@ -136,7 +135,7 @@ fn setup(
                     flip_y: rand::random::<bool>(),
                     ..default()
                 },
-                transform: Transform::from_translation(pos.extend(100.0)).with_rotation(
+                transform: Transform::from_translation(pos.extend(0.0)).with_rotation(
                     Quat::from_axis_angle(Vec3::Z, rand::random::<f32>().round() * PI * 0.5),
                 ),
                 ..default()
@@ -154,7 +153,7 @@ fn setup(
     for x in -count..count {
         for y in -count..count {
             let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
-            worker_spawn(
+            lumberjack_spawn(
                 &mut commands,
                 &asset_server,
                 &mut texture_atlases,
@@ -193,7 +192,7 @@ fn setup(
     commands
         .spawn(SpriteSheetBundle {
             texture_atlas: texture_atlas_handle,
-            transform: Transform::from_xyz(0.0, 0.0, 2.0),
+            transform: Transform::from_xyz(0.0, 0.0, 200.0),
             sprite: TextureAtlasSprite {
                 index: 1,
                 custom_size: Some(Vec2::ONE),
@@ -245,11 +244,13 @@ fn setup(
 
     commands
         .spawn(NodeBundle {
-            background_color: Color::OLIVE.into(),
+            background_color: Color::WHITE.into(),
             style: Style {
                 position_type: PositionType::Absolute,
                 position: UiRect::default(),
-                padding: UiRect::all(Val::Px(16.0)),
+                padding: UiRect::all(Val::Px(32.0)),
+                gap: Size::all(Val::Px(32.)),
+                flex_direction: FlexDirection::Column,
                 ..default()
             },
             ..default()
@@ -257,11 +258,37 @@ fn setup(
         .with_children(|parent| {
             parent
                 .spawn(TextBundle {
+                    background_color: Color::CRIMSON.into(),
+                    style: Style {
+                        padding: UiRect::all(Val::Px(12.)),
+                        ..default()
+                    },
                     text: Text::from_section(
                         "stats go here",
                         TextStyle {
                             font: asset_server.load("fonts/roboto_regular.ttf"),
                             font_size: 32.0,
+                            color: Color::WHITE,
+                        },
+                    ),
+                    ..default()
+                })
+                .insert(StatsText);
+        })
+        .with_children(|parent| {
+            parent
+                .spawn(TextBundle {
+                    background_color: Color::CRIMSON.into(),
+                    style: Style {
+                        //padding: UiRect::all(Val::Px(12.)),
+                        border: UiRect::all(Val::Px(8.)),
+                        ..default()
+                    },
+                    text: Text::from_section(
+                        "stats go here",
+                        TextStyle {
+                            font: asset_server.load("fonts/roboto_regular.ttf"),
+                            font_size: 16.0,
                             color: Color::WHITE,
                         },
                     ),
@@ -299,7 +326,7 @@ const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
 const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
 const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
 
-fn button_system(
+fn button_style(
     mut interaction_query: Query<
         (&Interaction, &mut BackgroundColor, &mut Style),
         (Changed<Interaction>, With<Button>),
@@ -318,7 +345,7 @@ fn button_system(
     }
 }
 
-fn spawn_button_system(
+fn lumberjack_spawn_button(
     query: Query<&Interaction, (Changed<Interaction>, With<SpawnButton>)>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -327,7 +354,7 @@ fn spawn_button_system(
     for interaction in query.iter() {
         if *interaction == Interaction::Clicked {
             for _ in 0..20 {
-                worker_spawn(
+                lumberjack_spawn(
                     &mut commands,
                     &asset_server,
                     &mut texture_atlases,
@@ -366,7 +393,7 @@ fn ease_in_out_cubic(x: f32) -> f32 {
     }
 }
 
-fn deposit_wood_stat(mut deposit_wood: EventReader<DepositWood>, mut stats: ResMut<Stats>) {
+fn deposit_wood_stat(mut deposit_wood: EventReader<DepositWoodEvent>, mut stats: ResMut<Stats>) {
     for event in deposit_wood.iter() {
         stats.wood += event.0
     }
@@ -425,7 +452,7 @@ fn move_camera(
 
 fn tree_death(
     mut query: Query<(Entity, &mut Tree)>,
-    mut tree_chop_event: EventReader<TreeChop>,
+    mut tree_chop_event: EventReader<TreeChopEvent>,
     mut commands: Commands,
 ) {
     for event in tree_chop_event.iter() {
@@ -439,19 +466,7 @@ fn tree_death(
     }
 }
 
-fn push_apart(mut query: Query<&mut Transform, With<Worker>>) {
-    let mut combinations = query.iter_combinations_mut();
-    while let Some([mut a, mut b]) = combinations.fetch_next() {
-        let delta = (b.translation - a.translation) / 12.0;
-        if delta.length() < 1.0 {
-            let push = delta.normalize() * (1. - delta.length()) * 2.0;
-            a.translation -= push;
-            b.translation += push;
-        }
-    }
-}
-
-fn my_cursor_system(
+fn cursor_world_position(
     // need to get window dimensions
     windows: Query<&Window>,
     // query to get camera transform
@@ -497,7 +512,7 @@ fn selection_change(
     mut query: Query<&mut Selection>,
     cursor: Res<Cursor>,
     input: Res<Input<MouseButton>>,
-    mut apply_selection: EventWriter<ApplySelection>,
+    mut apply_selection: EventWriter<ApplySelectionEvent>,
 ) {
     let mut selection = query.single_mut();
 
@@ -511,7 +526,7 @@ fn selection_change(
             *selection = if input.pressed(MouseButton::Left) {
                 Dragging(start, cursor.0)
             } else {
-                apply_selection.send(ApplySelection { start, end });
+                apply_selection.send(ApplySelectionEvent { start, end });
                 Selection::None
             }
         }
@@ -533,7 +548,7 @@ fn selection_visual(mut query: Query<(&mut Transform, &mut TextureAtlasSprite, &
     }
 }
 
-fn ysort_system(mut query: Query<&mut Transform, With<YSort>>) {
+fn ysort(mut query: Query<&mut Transform, With<YSort>>) {
     for mut transform in query.iter_mut() {
         transform.translation.z = 200.0 - transform.translation.y * 0.0001;
     }

@@ -6,17 +6,16 @@ pub fn find_nearest<F: ReadOnlyWorldQuery>(
     transform_query: QueryIter<(Entity, &Transform), F>,
     worker_pos: Vec2,
 ) -> Option<(Entity, Vec2)> {
-    transform_query.fold(None, |acc_option, (e, t)| {
+    transform_query.fold(None, |acc_option, (entity, transform)| {
+        let target_pos = transform.translation.truncate();
         Some(if let Some(acc) = acc_option {
-            if Vec2::distance(worker_pos, t.translation.truncate())
-                < Vec2::distance(worker_pos, acc.1)
-            {
-                (e, t.translation.truncate())
+            if Vec2::distance(worker_pos, target_pos) < Vec2::distance(worker_pos, acc.1) {
+                (entity, target_pos)
             } else {
                 acc
             }
         } else {
-            (e, t.translation.truncate())
+            (entity, target_pos)
         })
     })
 }

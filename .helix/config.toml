@@ -1,0 +1,6 @@
+[keys.normal.space]
+e = ":sh cargo run"
+[keys.normal]
+"playpause" = ":sh cargo run"
+"F5" = ":sh cargo run"
+
