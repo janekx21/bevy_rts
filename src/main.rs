@@ -78,6 +78,7 @@ fn main() {
         .add_plugin(TweeningPlugin)
         .add_plugin(FpsPlugin)
         .add_startup_system(setup)
+        .add_startup_system(setup_ui)
         .init_resource::<Cursor>()
         .init_resource::<Stats>()
         .add_event::<TreeChopEvent>()
@@ -106,103 +107,22 @@ fn main() {
         .run();
 }
 
+// setups
+
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
-    let mut camera = Camera2dBundle::default();
-    camera.projection.scale = 0.5;
-    commands.spawn(camera);
+    // todo move into setup functions
+    spawn_camera(&mut commands);
+    spawn_world(&asset_server, &mut texture_atlases, &mut commands);
+    spawn_lumberjacks(&mut commands, &asset_server, &mut texture_atlases);
+    spawn_baracks(&asset_server, &mut texture_atlases, &mut commands);
+    spawn_selection(&asset_server, texture_atlases, &mut commands);
+}
 
-    let texture_handle = asset_server.load("grass.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
-    for x in 0..100 {
-        for y in 0..100 {
-            let pos = Vec2::new(x as f32, y as f32) * 16. - Vec2::ONE * 16. * 50.;
-
-            let height = fbm_simplex_2d(pos * 0.003, 8, 2.0, 0.5) / 2.;
-
-            commands.spawn(SpriteSheetBundle {
-                texture_atlas: texture_atlas_handle.clone(),
-                sprite: TextureAtlasSprite {
-                    //custom_size: Some(Vec2::new(1000.0, 1000.0)),
-                    index: ((height / 2. + 0.5) * 5.).floor() as usize,
-                    flip_x: rand::random::<bool>(),
-                    flip_y: rand::random::<bool>(),
-                    ..default()
-                },
-                transform: Transform::from_translation(pos.extend(0.0)).with_rotation(
-                    Quat::from_axis_angle(Vec3::Z, rand::random::<f32>().round() * PI * 0.5),
-                ),
-                ..default()
-            });
-
-            if height >= 0.1 && height <= 0.3 {
-                if rand::random::<i32>() % 8 == 0 {
-                    spawn_tree(pos, &mut commands, &asset_server, &mut texture_atlases);
-                }
-            }
-        }
-    }
-
-    let count = 2;
-    for x in -count..count {
-        for y in -count..count {
-            let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
-            lumberjack_spawn(
-                &mut commands,
-                &asset_server,
-                &mut texture_atlases,
-                pos + simplex_noise_2d(pos) * 100.,
-            )
-        }
-    }
-
-    let texture_handle = asset_server.load("barracks_red.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 5, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
-    for i in (-300..300).step_by(50) {
-        commands
-            .spawn(SpriteSheetBundle {
-                texture_atlas: texture_atlas_handle.clone(),
-                transform: Transform::from_translation(Vec3::new(i as f32, 0.0, 0.0)),
-                ..default()
-            })
-            .insert(YSort)
-            .insert(Barrack);
-    }
-
-    for i in (0..360).step_by(15) {
-        let rotation = Mat2::from_angle(i as f32 * PI / 180.0);
-        let pos = rotation.mul_vec2(Vec2::X * 16.0 * 12.0);
-        spawn_tree(pos, &mut commands, &asset_server, &mut texture_atlases);
-    }
-
-    let texture_handle = asset_server.load("highlighted_boxes.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
-    commands
-        .spawn(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle,
-            transform: Transform::from_xyz(0.0, 0.0, 200.0),
-            sprite: TextureAtlasSprite {
-                index: 1,
-                custom_size: Some(Vec2::ONE),
-                color: Color::rgba(1.0, 1.0, 1.0, 0.5),
-                ..default()
-            },
-            ..default()
-        })
-        .insert(Selection::None);
-
+fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn(NodeBundle {
             style: Style {
@@ -298,6 +218,124 @@ fn setup(
         });
 }
 
+fn spawn_selection(
+    asset_server: &Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    commands: &mut Commands,
+) {
+    let texture_handle = asset_server.load("highlighted_boxes.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+
+    commands
+        .spawn(SpriteSheetBundle {
+            texture_atlas: texture_atlas_handle,
+            transform: Transform::from_xyz(0.0, 0.0, 200.0),
+            sprite: TextureAtlasSprite {
+                index: 1,
+                custom_size: Some(Vec2::ONE),
+                color: Color::rgba(1.0, 1.0, 1.0, 0.5),
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Selection::None);
+}
+
+fn spawn_baracks(
+    asset_server: &Res<AssetServer>,
+    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+    commands: &mut Commands,
+) {
+    let texture_handle = asset_server.load("barracks_red.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 5, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+
+    for i in (-300..300).step_by(50) {
+        commands
+            .spawn(SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle.clone(),
+                transform: Transform::from_translation(Vec3::new(i as f32, 0.0, 0.0)),
+                ..default()
+            })
+            .insert(YSort)
+            .insert(Barrack);
+    }
+}
+
+fn spawn_lumberjacks(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+) {
+    let count = 2;
+    for x in -count..count {
+        for y in -count..count {
+            let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
+            lumberjack_spawn(
+                commands,
+                asset_server,
+                texture_atlases,
+                pos + simplex_noise_2d(pos) * 100.,
+            )
+        }
+    }
+}
+
+fn spawn_world(
+    asset_server: &Res<AssetServer>,
+    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+    commands: &mut Commands,
+) {
+    let texture_handle = asset_server.load("grass.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+
+    for x in 0..100 {
+        for y in 0..100 {
+            let pos = Vec2::new(x as f32, y as f32) * 16. - Vec2::ONE * 16. * 50.;
+
+            let height = fbm_simplex_2d(pos * 0.003, 8, 2.0, 0.5) / 2.;
+
+            commands.spawn(SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle.clone(),
+                sprite: TextureAtlasSprite {
+                    //custom_size: Some(Vec2::new(1000.0, 1000.0)),
+                    index: ((height / 2. + 0.5) * 5.).floor() as usize,
+                    flip_x: rand::random::<bool>(),
+                    flip_y: rand::random::<bool>(),
+                    ..default()
+                },
+                transform: Transform::from_translation(pos.extend(0.0)).with_rotation(
+                    Quat::from_axis_angle(Vec3::Z, rand::random::<f32>().round() * PI * 0.5),
+                ),
+                ..default()
+            });
+
+            if height >= 0.1 && height <= 0.3 {
+                if rand::random::<i32>() % 8 == 0 {
+                    spawn_tree(pos, commands, asset_server, texture_atlases);
+                }
+            }
+        }
+    }
+
+    for i in (0..360).step_by(15) {
+        let rotation = Mat2::from_angle(i as f32 * PI / 180.0);
+        let pos = rotation.mul_vec2(Vec2::X * 16.0 * 12.0);
+        spawn_tree(pos, commands, &asset_server, texture_atlases);
+    }
+}
+
+fn spawn_camera(commands: &mut Commands) {
+    let mut camera = Camera2dBundle::default();
+    camera.projection.scale = 0.5;
+    commands.spawn(camera);
+}
+
 fn spawn_tree(
     pos: Vec2,
     commands: &mut Commands,
@@ -321,6 +359,8 @@ fn spawn_tree(
         .insert(YSort)
         .insert(Tree { resource: 100 });
 }
+
+// systems
 
 const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
 const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
