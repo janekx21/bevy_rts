@@ -22,7 +22,7 @@ pub fn unit_quad_tree_placement(
         let point_pos = pos_to_point(unit_pos);
         if let Some((current_point, current_handle)) = unit.point {
             if current_point != point_pos {
-                println!("move {:?} -> {:?}", current_point, point_pos);
+                // println!("move {:?} -> {:?}", current_point, point_pos);
                 // needs movement
                 // println!("must be moved");
                 unit_quad_tree.0.delete_by_handle(current_handle);
@@ -45,7 +45,7 @@ pub fn unit_quad_tree_placement(
 }
 
 fn pos_to_point(unit_pos: Vec2) -> Point<u32> {
-    let pos = ((unit_pos / 16.0) + (Vec2::ONE * 128.0)).round();
+    let pos = ((unit_pos / 8.0) + (Vec2::ONE * 128.0)).round();
     Point {
         x: pos.x as u32,
         y: pos.y as u32,
@@ -101,6 +101,7 @@ pub fn unit_push_apart(
     query: Query<(&Transform, Entity), With<Unit>>,
     mut unitq: Query<&mut Unit>,
     unit_quad_tree: Res<UnitQuadTree>,
+    time: Res<Time>,
 ) {
     for (a, ae) in query.iter() {
         let region = AreaBuilder::default()
@@ -112,12 +113,15 @@ pub fn unit_push_apart(
         while let Some(entry) = other_query.next() {
             let b_entity = entry.value_ref();
             let (b, be) = query.get(*b_entity).expect("valid enitiy");
+            if ae == be {
+                continue; // skip myself
+            }
             let delta = (b.translation - a.translation).truncate() / 12.0;
             if delta.length() < 1.0 {
-                let push = delta.normalize() * (1. - delta.length()) * 2.0;
+                let push = (delta * 100.0).clamp_length_max(1.0) * (1. - delta.length()) * 2.0;
                 //a.translation -= push;
                 let mut unit = unitq.get_mut(ae).expect("valid entity");
-                //unit.vel += push;
+                unit.vel -= push * 800.0 * time.delta_seconds();
                 // dont do this b.translation += push;
             }
         }

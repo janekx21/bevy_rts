@@ -285,7 +285,7 @@ fn setup_lumberjacks(
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
     mut unitQuadTree: ResMut<UnitQuadTree>,
 ) {
-    let count = 2;
+    let count = 20;
     for x in -count..count {
         for y in -count..count {
             let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
