@@ -11,6 +11,7 @@ use bevy::input::mouse::MouseMotion;
 use bevy::math::Mat2;
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
+use bevy::window::PresentMode;
 use bevy::window::WindowRef;
 use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
@@ -81,6 +82,7 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "RTS".into(),
+                        present_mode: PresentMode::AutoNoVsync,
                         ..default()
                     }),
                     ..default()
@@ -119,7 +121,32 @@ fn main() {
         .add_system(deposit_wood_stat)
         .add_system(stat_text)
         .add_system(ysort)
+        .add_system(camera_view_check)
         .run();
+}
+
+fn camera_view_check(
+    camera_query: Query<(&Transform, &OrthographicProjection), With<Camera>>,
+    mut visible_query: Query<(&Transform, &mut Visibility), Without<Node>>,
+) {
+    const MAX_TILE_SIZE: f32 = 16.;
+    for (camera_transform, projection) in camera_query.iter() {
+        let camera_pos = camera_transform.translation;
+        let scale = projection.scale;
+        let left = projection.area.min.x + camera_pos.x - MAX_TILE_SIZE;
+        let right = projection.area.max.x + camera_pos.x + MAX_TILE_SIZE;
+        let bottom = projection.area.min.y + camera_pos.y - MAX_TILE_SIZE;
+        let top = projection.area.max.y + camera_pos.y + MAX_TILE_SIZE;
+
+        for (transform, mut visible) in visible_query.iter_mut() {
+            let pos = transform.translation;
+            *visible = if pos.x > left && pos.x < right && pos.y > bottom && pos.y < top {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
 }
 
 // setups
@@ -283,9 +310,9 @@ fn setup_lumberjacks(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-    mut unitQuadTree: ResMut<UnitQuadTree>,
+    mut unit_quad_tree: ResMut<UnitQuadTree>,
 ) {
-    let count = 20;
+    let count = 10;
     for x in -count..count {
         for y in -count..count {
             let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
@@ -294,7 +321,7 @@ fn setup_lumberjacks(
                 &asset_server,
                 &mut texture_atlases,
                 pos + simplex_noise_2d(pos) * 100.,
-                &mut unitQuadTree,
+                &mut unit_quad_tree,
             )
         }
     }

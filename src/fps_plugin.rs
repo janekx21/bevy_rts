@@ -41,11 +41,11 @@ fn plugin_init(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn text_change(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text, With<FpsMarker>>) {
-    let mut fps = 0.0;
-    if let Some(fps_diagnostic) = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS) {
-        if let Some(fps_avg) = fps_diagnostic.average() {
-            fps = fps_avg;
-        }
-    }
+    let mut fps = diagnostics
+        .get(FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|fps_diagnostic| fps_diagnostic.average())
+        .unwrap_or(0.0);
+
+    // println!("fps={:.1}", fps);
     query.single_mut().sections[0].value = format!("fps = {:.1}", fps)
 }

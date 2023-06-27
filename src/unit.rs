@@ -1,5 +1,5 @@
 use crate::{ApplySelectionEvent, UnitQuadTree};
-use bevy::{ecs::query::BatchingStrategy, prelude::*};
+use bevy::prelude::*;
 use quadtree_rs::{area::AreaBuilder, point::Point};
 
 #[derive(Component, Default)]
@@ -22,9 +22,6 @@ pub fn unit_quad_tree_placement(
         let point_pos = pos_to_point(unit_pos);
         if let Some((current_point, current_handle)) = unit.point {
             if current_point != point_pos {
-                // println!("move {:?} -> {:?}", current_point, point_pos);
-                // needs movement
-                // println!("must be moved");
                 unit_quad_tree.0.delete_by_handle(current_handle);
                 let handle = unit_quad_tree
                     .0
@@ -33,13 +30,11 @@ pub fn unit_quad_tree_placement(
                 unit.point = Some((point_pos, handle));
             }
         } else {
-            // needs insert
             let handle = unit_quad_tree
                 .0
                 .insert_pt(point_pos, entity)
                 .expect("valid handle");
             unit.point = Some((point_pos, handle));
-            // println!("not in tree, got inserted");
         }
     }
 }
@@ -98,34 +93,42 @@ pub fn selection_visible(
 }
 
 pub fn unit_push_apart(
-    query: Query<(&Transform, Entity), With<Unit>>,
-    mut unitq: Query<&mut Unit>,
+    transform_query: Query<(&Transform, Entity), With<Unit>>,
+    mut unit_query: Query<(&mut Unit, Entity)>,
     unit_quad_tree: Res<UnitQuadTree>,
     time: Res<Time>,
 ) {
-    for (a, ae) in query.iter() {
-        let region = AreaBuilder::default()
-            .anchor(pos_to_point(a.translation.truncate()) - Point { x: 1, y: 1 })
-            .dimensions((3, 3))
-            .build()
-            .unwrap();
-        let mut other_query = unit_quad_tree.0.query(region);
-        while let Some(entry) = other_query.next() {
-            let b_entity = entry.value_ref();
-            let (b, be) = query.get(*b_entity).expect("valid enitiy");
-            if ae == be {
-                continue; // skip myself
+    let quad_tree = &unit_quad_tree.0;
+    unit_query.par_iter_mut().for_each_mut(|(mut a_unit, ae)| {
+        match transform_query.get(ae) {
+            Ok((a, _)) => {
+                let region = pos_to_region(a.translation.truncate());
+
+                let mut quad_tree_query = quad_tree.query_strict(region);
+                while let Some(entry) = quad_tree_query.next() {
+                    match transform_query.get(*entry.value_ref()) {
+                        Ok((b, be)) if ae != be => {
+                            let delta = (b.translation - a.translation).truncate() * 0.08;
+                            let l = delta.length_squared();
+                            if l < 1.0 && l > 0.01 {
+                                let push = delta.normalize() * (1.0 - delta.length_squared());
+                                a_unit.vel -= 1600.0 * time.delta_seconds() * push;
+                            }
+                        }
+                        Err(_) | Ok(_) => { /* Do nothing */ }
+                    }
+                }
             }
-            let delta = (b.translation - a.translation).truncate() / 12.0;
-            if delta.length() < 1.0 {
-                let push = (delta * 100.0).clamp_length_max(1.0) * (1. - delta.length()) * 2.0;
-                //a.translation -= push;
-                let mut unit = unitq.get_mut(ae).expect("valid entity");
-                unit.vel -= push * 800.0 * time.delta_seconds();
-                // dont do this b.translation += push;
-            }
+            Err(_) => { /* Do nothing */ }
         }
-    }
-    // let mut combinations = query.iter_combinations_mut();
-    // while let Some([mut a, mut b]) = combinations.fetch_next() {}
+    })
+}
+
+fn pos_to_region(unit_pos: Vec2) -> quadtree_rs::area::Area<u32> {
+    let region = AreaBuilder::default()
+        .anchor(pos_to_point(unit_pos) - Point { x: 1, y: 1 })
+        .dimensions((3, 3))
+        .build()
+        .unwrap();
+    region
 }
