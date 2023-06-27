@@ -1,16 +1,18 @@
 use crate::unit::{SelectionBox, Unit};
 use crate::util::find_nearest;
-use crate::{Barrack, Cursor, DepositWoodEvent, Tree, TreeChopEvent, UnitQuadTree, YSort};
+use crate::{Barrack, Cursor, DepositWoodEvent, Tree, TreeChopEvent, YSort};
 use bevy::prelude::*;
-use quadtree_rs::{area::AreaBuilder, point::Point};
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct Lumberjack {
     action: Action,
     wood: u32,
+    animation_timer: f32,
 }
 
+#[derive(Default)]
 pub enum Action {
+    #[default]
     Idle,
     MoveToPosition(Vec2),
     CollectResource(Entity),
@@ -23,7 +25,6 @@ pub fn lumberjack_spawn(
     asset_server: &Res<AssetServer>,
     texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
     pos: Vec2,
-    unitQuadTree: &mut ResMut<UnitQuadTree>,
 ) {
     let texture_handle = asset_server.load("farmer_red.png");
     let texture_atlas =
@@ -53,33 +54,30 @@ pub fn lumberjack_spawn(
         })
         .insert(YSort)
         .insert(Unit::default())
-        .insert(Lumberjack {
-            action: Action::Idle,
-            wood: 0,
-        })
+        .insert(Lumberjack::default())
         .add_child(selector);
 }
 
-pub fn lumberjack_animation(
-    mut query: Query<(&Unit, &Lumberjack, &mut TextureAtlasSprite)>,
-    time: Res<Time>,
-) {
-    let frame = (time.elapsed_seconds() * 8.0).round() as usize;
+pub fn lumberjack_animation(mut query: Query<(&Unit, &Lumberjack, &mut TextureAtlasSprite)>) {
     for (unit, worker, mut sprite) in query.iter_mut() {
-        let direction = if unit.vel.length() > 0.5 {
-            match unit.vel {
-                Vec2 { x, y } if x > y && -x > y => 0,    // down
-                Vec2 { x, y } if x > -y && -x > -y => 5,  // up
-                Vec2 { x, y } if x > y && x > -y => 10,   // right
-                Vec2 { x, y } if -x > y && -x > -y => 15, // left
-                _ => 0,                                   // no direction -> down
-            }
-        } else {
-            0 // down when no movement
+        let frame = (worker.animation_timer * 8.0).round() as usize;
+        let direction = match unit.last_direction {
+            Vec2 { x, y } if x > y && -x > y => 0,    // down
+            Vec2 { x, y } if x > -y && -x > -y => 5,  // up
+            Vec2 { x, y } if x > y && x > -y => 10,   // right
+            Vec2 { x, y } if -x > y && -x > -y => 15, // left
+            _ => 0,                                   // no direction -> down
         };
+
         (*sprite).index = match worker.action {
-            Action::Chop(_) => 40 + direction + frame % 3,
-            _ => direction + frame % 5 + if worker.wood > 0 { 20 } else { 0 },
+            Action::Chop(timer) => {
+                let animation_frame = (timer.clamp(0.0, 1.0) * 3.0).floor() as usize;
+                40 + direction + animation_frame
+            }
+            _ if unit.vel.length() > 20.0 => {
+                direction + (frame % 4 + 1) + if worker.wood > 0 { 20 } else { 0 }
+            }
+            _ => direction + if worker.wood > 0 { 20 } else { 0 },
         };
     }
 }
@@ -94,6 +92,7 @@ pub fn lumberjack_next_action(
     time: Res<Time>,
 ) {
     for (mut worker, mut unit, transform) in query.iter_mut() {
+        worker.animation_timer += time.delta_seconds();
         let pos = transform.translation.truncate();
         match worker.action {
             Action::Idle => {
@@ -114,6 +113,7 @@ pub fn lumberjack_next_action(
                 unit.target_direction = delta;
                 if delta.length_squared() < 25.0 * 25.0 {
                     worker.action = Action::Idle;
+                    worker.animation_timer = 0.0;
                 }
             }
             Action::CollectResource(target) => {
@@ -123,10 +123,11 @@ pub fn lumberjack_next_action(
                     unit.target_direction = (target_pos - pos).normalize();
                     if Vec2::distance_squared(target_pos, pos) < 10.0 * 10.0 {
                         tree_chop_event.send(TreeChopEvent(tree_entity));
-                        worker.action = Action::Chop(3.0 / 8.0); // animation time of chop
+                        worker.action = Action::Chop(1.0);
                     }
                 } else if entity_query.get(target).is_err() {
                     worker.action = Action::Idle;
+                    worker.animation_timer = 0.0;
                 }
             }
             Action::DepositResource(target) => {
@@ -138,6 +139,7 @@ pub fn lumberjack_next_action(
                         // found target
                         worker.wood = 0;
                         worker.action = Action::Idle;
+                        worker.animation_timer = 0.0;
                         deposit_wood.send(DepositWoodEvent(1))
                     }
                 }
@@ -145,10 +147,11 @@ pub fn lumberjack_next_action(
             Action::Chop(timeout) => {
                 unit.target_direction = Vec2::ZERO;
                 if timeout > 0.0 {
-                    worker.action = Action::Chop(timeout - time.delta_seconds());
+                    worker.action = Action::Chop(timeout - time.delta_seconds() * (8.0 / 3.0));
                 } else {
                     worker.wood += 1;
                     worker.action = Action::Idle;
+                    worker.animation_timer = 0.0;
                 }
             }
         }

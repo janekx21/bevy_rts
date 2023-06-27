@@ -7,6 +7,7 @@ pub struct Unit {
     pub is_selected: bool,
     pub vel: Vec2,
     pub target_direction: Vec2,
+    pub last_direction: Vec2,
     pub point: Option<(Point<u32>, u64)>,
 }
 
@@ -56,6 +57,9 @@ pub fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
         let target = unit.target_direction.clamp_length_max(1.0) * 60.; // max speed
         let delta = target - unit.vel;
         unit.vel += delta.clamp_length_max(time.delta_seconds() * 200.0); // accell
+        if unit.vel.length_squared() > 20.0 * 20.0 {
+            unit.last_direction = unit.vel.normalize();
+        }
     });
 }
 

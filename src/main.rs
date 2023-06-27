@@ -318,7 +318,6 @@ fn setup_lumberjacks(
                 &asset_server,
                 &mut texture_atlases,
                 pos + simplex_noise_2d(pos) * 100.,
-                &mut unit_quad_tree,
             )
         }
     }
@@ -430,7 +429,6 @@ fn lumberjack_spawn_button(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-    mut unitQuadTree: ResMut<UnitQuadTree>,
 ) {
     for interaction in query.iter() {
         if *interaction == Interaction::Clicked {
@@ -439,8 +437,7 @@ fn lumberjack_spawn_button(
                     &mut commands,
                     &asset_server,
                     &mut texture_atlases,
-                    Vec2::new(0.0, 0.0) + random_vec2() * 10.0,
-                    &mut unitQuadTree,
+                    Vec2::new(0.0, 0.0) + random_vec2() * 100.0,
                 )
             }
         };
