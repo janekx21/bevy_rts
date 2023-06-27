@@ -56,7 +56,7 @@ struct SpawnButton;
 #[derive(Component)]
 struct YSort;
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 pub struct UnitQuadTree(Quadtree<u32, Entity>);
 
 impl Default for UnitQuadTree {
@@ -131,16 +131,13 @@ fn camera_view_check(
 ) {
     const MAX_TILE_SIZE: f32 = 16.;
     for (camera_transform, projection) in camera_query.iter() {
-        let camera_pos = camera_transform.translation;
-        let scale = projection.scale;
-        let left = projection.area.min.x + camera_pos.x - MAX_TILE_SIZE;
-        let right = projection.area.max.x + camera_pos.x + MAX_TILE_SIZE;
-        let bottom = projection.area.min.y + camera_pos.y - MAX_TILE_SIZE;
-        let top = projection.area.max.y + camera_pos.y + MAX_TILE_SIZE;
-
+        let camera_pos = camera_transform.translation.truncate();
+        let mut rect = projection.area.inset(MAX_TILE_SIZE);
+        rect.min += camera_pos;
+        rect.max += camera_pos;
         for (transform, mut visible) in visible_query.iter_mut() {
-            let pos = transform.translation;
-            *visible = if pos.x > left && pos.x < right && pos.y > bottom && pos.y < top {
+            let pos = transform.translation.truncate();
+            *visible = if rect.contains(pos) {
                 Visibility::Visible
             } else {
                 Visibility::Hidden

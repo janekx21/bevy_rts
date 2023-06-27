@@ -22,19 +22,17 @@ pub fn unit_quad_tree_placement(
         let point_pos = pos_to_point(unit_pos);
         if let Some((current_point, current_handle)) = unit.point {
             if current_point != point_pos {
-                unit_quad_tree.0.delete_by_handle(current_handle);
-                let handle = unit_quad_tree
-                    .0
+                unit.point = unit_quad_tree
                     .insert_pt(point_pos, entity)
-                    .expect("valid handle");
-                unit.point = Some((point_pos, handle));
+                    .map(|handle| (point_pos, handle));
+                if unit.point.is_some() {
+                    unit_quad_tree.delete_by_handle(current_handle);
+                }
             }
         } else {
-            let handle = unit_quad_tree
-                .0
+            unit.point = unit_quad_tree
                 .insert_pt(point_pos, entity)
-                .expect("valid handle");
-            unit.point = Some((point_pos, handle));
+                .map(|handle| (point_pos, handle));
         }
     }
 }
@@ -112,7 +110,7 @@ pub fn unit_push_apart(
                             let l = delta.length_squared();
                             if l < 1.0 && l > 0.01 {
                                 let push = delta.normalize() * (1.0 - delta.length_squared());
-                                a_unit.vel -= 1600.0 * time.delta_seconds() * push;
+                                a_unit.vel -= 800.0 * time.delta_seconds() * push;
                             }
                         }
                         Err(_) | Ok(_) => { /* Do nothing */ }
