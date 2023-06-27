@@ -10,6 +10,7 @@ bevy = { version = "0.10", features = ["wayland"] } # "dynamic",
 rand = "0.8.5"
 bevy_tweening = "0.7"
 noisy_bevy = "0.3"
+quadtree_rs = "0.1.3"
 
 # Enable only a small amount of optimization in debug mode
 [profile.dev]

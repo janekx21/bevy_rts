@@ -1,7 +1,8 @@
 use crate::unit::{SelectionBox, Unit};
 use crate::util::find_nearest;
-use crate::{Barrack, Cursor, DepositWoodEvent, Tree, TreeChopEvent, YSort};
+use crate::{Barrack, Cursor, DepositWoodEvent, Tree, TreeChopEvent, UnitQuadTree, YSort};
 use bevy::prelude::*;
+use quadtree_rs::{area::AreaBuilder, point::Point};
 
 #[derive(Component)]
 pub struct Lumberjack {
@@ -22,6 +23,7 @@ pub fn lumberjack_spawn(
     asset_server: &Res<AssetServer>,
     texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
     pos: Vec2,
+    unitQuadTree: &mut ResMut<UnitQuadTree>,
 ) {
     let texture_handle = asset_server.load("farmer_red.png");
     let texture_atlas =

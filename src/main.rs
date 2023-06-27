@@ -14,6 +14,7 @@ use bevy::render::camera::RenderTarget;
 use bevy::window::WindowRef;
 use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
+use quadtree_rs::{area::AreaBuilder, point::Point, Quadtree};
 use std::f32::consts::PI;
 use util::random_vec2;
 
@@ -54,6 +55,17 @@ struct SpawnButton;
 #[derive(Component)]
 struct YSort;
 
+#[derive(Resource)]
+pub struct UnitQuadTree(Quadtree<u32, Entity>);
+
+impl Default for UnitQuadTree {
+    fn default() -> Self {
+        let tree = Quadtree::<u32, Entity>::new(8);
+        println!("created tree width={}", tree.width());
+        UnitQuadTree(tree)
+    }
+}
+
 // events
 pub struct TreeChopEvent(Entity);
 pub struct DepositWoodEvent(u32);
@@ -79,8 +91,10 @@ fn main() {
         .add_plugin(FpsPlugin)
         .add_startup_system(setup)
         .add_startup_system(setup_ui)
+        .add_startup_system(setup_lumberjacks)
         .init_resource::<Cursor>()
         .init_resource::<Stats>()
+        .init_resource::<UnitQuadTree>()
         .add_event::<TreeChopEvent>()
         .add_event::<ApplySelectionEvent>()
         .add_event::<DepositWoodEvent>()
@@ -95,6 +109,7 @@ fn main() {
         .add_system(unit_select)
         .add_system(unit_vel)
         .add_system(unit_move)
+        .add_system(unit_quad_tree_placement)
         .add_system(lumberjack_animation)
         .add_system(lumberjack_next_action)
         .add_system(lumberjack_move_to_position_action)
@@ -117,7 +132,6 @@ fn setup(
     // todo move into setup functions
     spawn_camera(&mut commands);
     spawn_world(&asset_server, &mut texture_atlases, &mut commands);
-    spawn_lumberjacks(&mut commands, &asset_server, &mut texture_atlases);
     spawn_baracks(&asset_server, &mut texture_atlases, &mut commands);
     spawn_selection(&asset_server, texture_atlases, &mut commands);
 }
@@ -265,20 +279,22 @@ fn spawn_baracks(
     }
 }
 
-fn spawn_lumberjacks(
-    commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
-    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+fn setup_lumberjacks(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    mut unitQuadTree: ResMut<UnitQuadTree>,
 ) {
     let count = 2;
     for x in -count..count {
         for y in -count..count {
             let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
             lumberjack_spawn(
-                commands,
-                asset_server,
-                texture_atlases,
+                &mut commands,
+                &asset_server,
+                &mut texture_atlases,
                 pos + simplex_noise_2d(pos) * 100.,
+                &mut unitQuadTree,
             )
         }
     }
@@ -390,6 +406,7 @@ fn lumberjack_spawn_button(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    mut unitQuadTree: ResMut<UnitQuadTree>,
 ) {
     for interaction in query.iter() {
         if *interaction == Interaction::Clicked {
@@ -399,6 +416,7 @@ fn lumberjack_spawn_button(
                     &asset_server,
                     &mut texture_atlases,
                     Vec2::new(0.0, 0.0) + random_vec2() * 10.0,
+                    &mut unitQuadTree,
                 )
             }
         };

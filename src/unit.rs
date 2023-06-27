@@ -1,29 +1,69 @@
-use bevy::prelude::*;
-
-use crate::ApplySelectionEvent;
+use crate::{ApplySelectionEvent, UnitQuadTree};
+use bevy::{ecs::query::BatchingStrategy, prelude::*};
+use quadtree_rs::{area::AreaBuilder, point::Point};
 
 #[derive(Component, Default)]
 pub struct Unit {
     pub is_selected: bool,
     pub vel: Vec2,
     pub target_direction: Vec2,
+    pub point: Option<(Point<u32>, u64)>,
 }
 
 #[derive(Component)]
 pub struct SelectionBox;
 
-pub fn unit_vel(mut query: Query<(&mut Transform, &Unit)>, time: Res<Time>) {
-    for (mut transform, unit) in query.iter_mut() {
-        transform.translation += unit.vel.extend(0.0) * time.delta_seconds();
+pub fn unit_quad_tree_placement(
+    mut query: Query<(&Transform, &mut Unit, Entity)>,
+    mut unit_quad_tree: ResMut<UnitQuadTree>,
+) {
+    for (transform, mut unit, entity) in query.iter_mut() {
+        let unit_pos = transform.translation.truncate();
+        let point_pos = pos_to_point(unit_pos);
+        if let Some((current_point, current_handle)) = unit.point {
+            if current_point != point_pos {
+                println!("move {:?} -> {:?}", current_point, point_pos);
+                // needs movement
+                // println!("must be moved");
+                unit_quad_tree.0.delete_by_handle(current_handle);
+                let handle = unit_quad_tree
+                    .0
+                    .insert_pt(point_pos, entity)
+                    .expect("valid handle");
+                unit.point = Some((point_pos, handle));
+            }
+        } else {
+            // needs insert
+            let handle = unit_quad_tree
+                .0
+                .insert_pt(point_pos, entity)
+                .expect("valid handle");
+            unit.point = Some((point_pos, handle));
+            // println!("not in tree, got inserted");
+        }
     }
 }
 
+fn pos_to_point(unit_pos: Vec2) -> Point<u32> {
+    let pos = ((unit_pos / 16.0) + (Vec2::ONE * 128.0)).round();
+    Point {
+        x: pos.x as u32,
+        y: pos.y as u32,
+    }
+}
+
+pub fn unit_vel(mut query: Query<(&mut Transform, &Unit)>, time: Res<Time>) {
+    query.par_iter_mut().for_each_mut(|(mut transform, unit)| {
+        transform.translation += unit.vel.extend(0.0) * time.delta_seconds();
+    });
+}
+
 pub fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
-    for mut unit in query.iter_mut() {
+    query.par_iter_mut().for_each_mut(|mut unit| {
         let target = unit.target_direction.clamp_length_max(1.0) * 60.; // max speed
         let delta = target - unit.vel;
         unit.vel += delta.clamp_length_max(time.delta_seconds() * 200.0); // accell
-    }
+    });
 }
 
 pub fn unit_select(
@@ -57,14 +97,31 @@ pub fn selection_visible(
     }
 }
 
-pub fn unit_push_apart(mut query: Query<&mut Transform, With<Unit>>) {
-    let mut combinations = query.iter_combinations_mut();
-    while let Some([mut a, mut b]) = combinations.fetch_next() {
-        let delta = (b.translation - a.translation) / 12.0;
-        if delta.length() < 1.0 {
-            let push = delta.normalize() * (1. - delta.length()) * 2.0;
-            a.translation -= push;
-            b.translation += push;
+pub fn unit_push_apart(
+    query: Query<(&Transform, Entity), With<Unit>>,
+    mut unitq: Query<&mut Unit>,
+    unit_quad_tree: Res<UnitQuadTree>,
+) {
+    for (a, ae) in query.iter() {
+        let region = AreaBuilder::default()
+            .anchor(pos_to_point(a.translation.truncate()) - Point { x: 1, y: 1 })
+            .dimensions((3, 3))
+            .build()
+            .unwrap();
+        let mut other_query = unit_quad_tree.0.query(region);
+        while let Some(entry) = other_query.next() {
+            let b_entity = entry.value_ref();
+            let (b, be) = query.get(*b_entity).expect("valid enitiy");
+            let delta = (b.translation - a.translation).truncate() / 12.0;
+            if delta.length() < 1.0 {
+                let push = delta.normalize() * (1. - delta.length()) * 2.0;
+                //a.translation -= push;
+                let mut unit = unitq.get_mut(ae).expect("valid entity");
+                //unit.vel += push;
+                // dont do this b.translation += push;
+            }
         }
     }
+    // let mut combinations = query.iter_combinations_mut();
+    // while let Some([mut a, mut b]) = combinations.fetch_next() {}
 }
