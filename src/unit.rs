@@ -9,6 +9,7 @@ pub struct Unit {
     pub target_direction: Vec2,
     pub last_direction: Vec2,
     pub point: Option<(Point<u32>, u64)>,
+    pub hp: f32,
 }
 
 #[derive(Component)]
@@ -113,7 +114,7 @@ pub fn unit_push_apart(
                             let delta = (b.translation - a.translation).truncate() * 0.08;
                             let l = delta.length_squared();
                             if l < 1.0 && l > 0.01 {
-                                let push = delta.normalize() * (1.0 - delta.length_squared());
+                                let push = delta.normalize() * (1.0 - l);
                                 a_unit.vel -= 800.0 * time.delta_seconds() * push;
                             }
                         }
