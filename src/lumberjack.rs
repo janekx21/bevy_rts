@@ -1,6 +1,6 @@
-use crate::unit::{SelectionBox, Unit};
+use crate::unit::{SelectedMark, SelectionBox, Unit};
 use crate::util::find_nearest;
-use crate::{Barrack, Cursor, DepositWoodEvent, Tree, TreeChopEvent, YSort};
+use crate::{Barrack, Cull2D, Cursor, DepositWoodEvent, Tree, TreeChopEvent, YSort};
 use bevy::prelude::*;
 
 #[derive(Component, Default)]
@@ -38,14 +38,6 @@ pub fn lumberjack_spawn(
         texture_atlases.add(texture_atlas)
     };
 
-    let selector = commands
-        .spawn(SpriteSheetBundle {
-            texture_atlas: box_selector,
-            ..default()
-        })
-        .insert(SelectionBox)
-        .id();
-
     commands
         .spawn(SpriteSheetBundle {
             texture_atlas: texture_atlas_handle,
@@ -53,9 +45,18 @@ pub fn lumberjack_spawn(
             ..default()
         })
         .insert(YSort)
+        .insert(Cull2D)
         .insert(Unit::default())
         .insert(Lumberjack::default())
-        .add_child(selector);
+        .with_children(|builder| {
+            builder
+                .spawn(SpriteSheetBundle {
+                    texture_atlas: box_selector,
+                    visibility: Visibility::Hidden,
+                    ..default()
+                })
+                .insert(SelectionBox);
+        });
 }
 
 pub fn lumberjack_animation(mut query: Query<(&Unit, &Lumberjack, &mut TextureAtlasSprite)>) {
@@ -159,12 +160,12 @@ pub fn lumberjack_next_action(
 }
 
 pub fn lumberjack_move_to_position_action(
-    mut query: Query<(&Unit, &mut Lumberjack)>,
+    mut query: Query<(&Unit, &mut Lumberjack), With<SelectedMark>>,
     input: Res<Input<MouseButton>>,
     cursor: Res<Cursor>,
 ) {
     if input.just_pressed(MouseButton::Right) {
-        for (_, mut worker) in query.iter_mut().filter(|(unit, _)| unit.is_selected) {
+        for (_, mut worker) in query.iter_mut() {
             worker.action = Action::MoveToPosition(cursor.0);
         }
     }

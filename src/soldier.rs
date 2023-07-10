@@ -1,8 +1,8 @@
 use bevy::{asset::AssetPath, prelude::*};
 
 use crate::{
-    unit::{SelectionBox, Unit},
-    Cursor, YSort,
+    unit::{SelectedMark, SelectionBox, Unit},
+    Cull2D, Cursor, YSort,
 };
 
 #[derive(Component, Default)]
@@ -94,15 +94,14 @@ impl FromWorld for SoldierResource {
     }
 }
 
+fn load_image<'a, P: Into<AssetPath<'a>>>(world: &mut World, path: P) -> Handle<Image> {
+    let asset_server = world.get_resource::<AssetServer>().unwrap();
+    asset_server.load(path)
+}
+
 fn add_texture_atlas(world: &mut World, texture_atlas: TextureAtlas) -> Handle<TextureAtlas> {
     let mut texture_atlases = world.get_resource_mut::<Assets<TextureAtlas>>().unwrap();
     texture_atlases.add(texture_atlas)
-}
-
-fn load_image<'a, P: Into<AssetPath<'a>>>(world: &mut World, path: P) -> Handle<Image> {
-    let asset_server = world.get_resource::<AssetServer>().unwrap();
-    let texture_handle = asset_server.load(path);
-    texture_handle
 }
 
 pub fn soldier_spawn(
@@ -120,12 +119,14 @@ pub fn soldier_spawn(
                 ..default()
             })
             .insert(YSort)
+            .insert(Cull2D)
             .insert(Unit::default())
             .insert(Soldier::default())
             .with_children(|builder| {
                 builder
                     .spawn(SpriteSheetBundle {
                         texture_atlas: soldier_resource.box_selector.clone(),
+                        visibility: Visibility::Hidden,
                         ..default()
                     })
                     .insert(SelectionBox);
@@ -134,12 +135,12 @@ pub fn soldier_spawn(
 }
 
 pub fn move_to_position_action(
-    mut query: Query<(&Unit, &mut Soldier)>,
+    mut query: Query<(&Unit, &mut Soldier), With<SelectedMark>>,
     input: Res<Input<MouseButton>>,
     cursor: Res<Cursor>,
 ) {
     if input.just_pressed(MouseButton::Right) {
-        for (_, mut worker) in query.iter_mut().filter(|(unit, _)| unit.is_selected) {
+        for (_, mut worker) in query.iter_mut() {
             worker.action = SoldierAction::MoveToPosition {
                 target: **cursor,
                 attack_move: false,

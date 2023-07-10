@@ -4,7 +4,6 @@ use quadtree_rs::{area::AreaBuilder, point::Point};
 
 #[derive(Component, Default)]
 pub struct Unit {
-    pub is_selected: bool,
     pub vel: Vec2,
     pub target_direction: Vec2,
     pub last_direction: Vec2,
@@ -14,6 +13,9 @@ pub struct Unit {
 
 #[derive(Component)]
 pub struct SelectionBox;
+
+#[derive(Component)]
+pub struct SelectedMark;
 
 pub fn unit_quad_tree_placement(
     mut query: Query<(&Transform, &mut Unit, Entity)>,
@@ -66,31 +68,48 @@ pub fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
 
 pub fn unit_select(
     mut apply_selection: EventReader<ApplySelectionEvent>,
-    mut query: Query<(&Transform, &mut Unit)>,
+    mut query: Query<(&Transform, Entity), With<Unit>>,
+    mut commands: Commands,
 ) {
     for event in apply_selection.iter() {
-        let min = Vec2::min(event.start, event.end);
-        let max = Vec2::max(event.start, event.end);
+        let rect = Rect::from_corners(event.start, event.end);
 
-        for (transform, mut unit) in query.iter_mut() {
-            let p = transform.translation.truncate();
-            let inside = p.x > min.x && p.x < max.x && p.y > min.y && p.y < max.y;
-            unit.is_selected = inside;
+        for (transform, entity) in query.iter() {
+            let point = transform.translation.truncate();
+            let mut entity = commands.entity(entity);
+            if rect.contains(point) {
+                entity.insert(SelectedMark);
+            } else {
+                entity.remove::<SelectedMark>();
+            }
         }
     }
 }
 
-pub fn selection_visible(
-    mut child_query: Query<(&Parent, &mut Visibility), With<SelectionBox>>,
-    parent_query: Query<&Unit>,
+pub fn selection_added(
+    unit_query: Query<&Children, (With<Unit>, Added<SelectedMark>)>,
+    mut child_query: Query<&mut Visibility, With<SelectionBox>>,
 ) {
-    for (par, mut vis) in child_query.iter_mut() {
-        if let Ok(parent) = parent_query.get(par.get()) {
-            *vis = if parent.is_selected {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
+    for children in unit_query.iter() {
+        for child in children.iter() {
+            let mut vis = child_query.get_mut(*child).unwrap();
+            *vis = Visibility::Inherited;
+        }
+    }
+}
+
+pub fn selection_removed(
+    mut removed: RemovedComponents<SelectedMark>,
+    unit_query: Query<&Children, With<Unit>>,
+    mut child_query: Query<&mut Visibility, With<SelectionBox>>,
+) {
+    // `RemovedComponents<T>::iter()` returns an interator with the `Entity`s that had their
+    // `Component` `T` (in this case `MyComponent`) removed at some point earlier during the frame.
+    for entity in removed.iter() {
+        let children = unit_query.get(entity).expect("valid children");
+        for child in children.iter() {
+            let mut vis = child_query.get_mut(*child).unwrap();
+            *vis = Visibility::Hidden;
         }
     }
 }

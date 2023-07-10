@@ -16,7 +16,7 @@ use bevy::window::PresentMode;
 use bevy::window::WindowRef;
 use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
-use quadtree_rs::{area::AreaBuilder, point::Point, Quadtree};
+use quadtree_rs::Quadtree;
 use soldier::SoldierPlugin;
 use soldier::SpawnSoldierEvent;
 use std::f32::consts::PI;
@@ -58,6 +58,8 @@ struct SpawnButton;
 // render components
 #[derive(Component)]
 struct YSort;
+#[derive(Component)]
+struct Cull2D;
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct UnitQuadTree(Quadtree<u32, Entity>);
@@ -111,7 +113,8 @@ fn main() {
         .add_system(selection_change)
         .add_system(selection_visual)
         .add_system(unit_push_apart)
-        .add_system(selection_visible)
+        .add_system(selection_added)
+        .add_system(selection_removed.after(selection_change))
         .add_system(unit_select)
         .add_system(unit_vel)
         .add_system(unit_move)
@@ -131,7 +134,7 @@ fn main() {
 
 fn camera_view_check(
     camera_query: Query<(&Transform, &OrthographicProjection), With<Camera>>,
-    mut visible_query: Query<(&GlobalTransform, &mut Visibility), Without<Node>>,
+    mut visible_query: Query<(&GlobalTransform, &mut Visibility), With<Cull2D>>,
 ) {
     const MAX_TILE_SIZE: f32 = 16.;
     for (camera_transform, projection) in camera_query.iter() {
@@ -142,7 +145,7 @@ fn camera_view_check(
         for (transform, mut visible) in visible_query.iter_mut() {
             let pos = transform.translation().truncate();
             *visible = if rect.contains(pos) {
-                Visibility::Visible
+                Visibility::Inherited
             } else {
                 Visibility::Hidden
             };
@@ -335,6 +338,7 @@ fn spawn_world(
                     transform: Transform::from_translation(pos.extend(0.0)),
                     ..default()
                 })
+                .insert(Cull2D)
                 .with_children(|builder| {
                     if rand::random::<u8>() % 5 == 0 {
                         builder.spawn(SpriteSheetBundle {
@@ -399,6 +403,7 @@ fn spawn_tree(
             ..default()
         })
         .insert(YSort)
+        .insert(Cull2D)
         .insert(Tree { resource: 100 });
 }
 
