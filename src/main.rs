@@ -13,6 +13,7 @@ use bevy::math::Mat2;
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::window::PresentMode;
+use bevy::window::WindowMode;
 use bevy::window::WindowRef;
 use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
@@ -129,6 +130,7 @@ fn main() {
         .add_system(stat_text)
         .add_system(ysort)
         .add_system(camera_view_check)
+        .add_system(fullscreen_toggle)
         .run();
 }
 
@@ -136,7 +138,7 @@ fn camera_view_check(
     camera_query: Query<(&Transform, &OrthographicProjection), With<Camera>>,
     mut visible_query: Query<(&GlobalTransform, &mut Visibility), With<Cull2D>>,
 ) {
-    const MAX_TILE_SIZE: f32 = 16.;
+    const MAX_TILE_SIZE: f32 = 16.0;
     for (camera_transform, projection) in camera_query.iter() {
         let camera_pos = camera_transform.translation.truncate();
         let mut rect = projection.area.inset(MAX_TILE_SIZE);
@@ -285,6 +287,7 @@ fn spawn_baracks(
                 ..default()
             })
             .insert(YSort)
+            .insert(Cull2D)
             .insert(Barrack);
     }
 }
@@ -534,6 +537,17 @@ fn move_camera(
     camera_transform.translation += (move_keyboard + dir_mouse).round().extend(0.0);
 }
 
+fn fullscreen_toggle(keys: Res<Input<KeyCode>>, mut windows: Query<&mut Window>) {
+    if keys.just_pressed(KeyCode::F11) {
+        let mut window = windows.single_mut();
+        window.mode = if window.mode == WindowMode::Windowed {
+            WindowMode::BorderlessFullscreen
+        } else {
+            WindowMode::Windowed
+        };
+    }
+}
+
 fn tree_death(
     mut query: Query<(Entity, &mut Tree)>,
     mut tree_chop_event: EventReader<TreeChopEvent>,
@@ -574,20 +588,14 @@ fn cursor_world_position(
     if let Some(screen_pos) = window.cursor_position() {
         // get the size of the window
         let window_size = Vec2::new(window.width() as f32, window.height() as f32);
-
         // convert screen position [0..resolution] to ndc [-1..1] (gpu coordinates)
         let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
-
         // matrix for undoing the projection and camera transform
         let ndc_to_world = camera_transform.compute_matrix() * camera.projection_matrix().inverse();
-
         // use it to convert ndc to world-space coordinates
         let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0));
-
         // reduce it to a 2D value
         let world_pos: Vec2 = world_pos.truncate();
-
-        // eprintln!("World coords: {}/{}", world_pos.x, world_pos.y);
         cursor.0 = world_pos;
     }
 }
