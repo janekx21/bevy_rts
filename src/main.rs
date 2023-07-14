@@ -9,12 +9,12 @@ use crate::unit::*;
 use crate::Selection::Dragging;
 use bevy::ecs::query::QueryIter;
 use bevy::input::mouse::MouseMotion;
-use bevy::math::Mat2;
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::window::PresentMode;
 use bevy::window::WindowMode;
 use bevy::window::WindowRef;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
 use quadtree_rs::Quadtree;
@@ -80,6 +80,10 @@ pub struct ApplySelectionEvent {
     start: Vec2,
     end: Vec2,
 }
+#[derive(Deref)]
+struct TreeSpawnEvent {
+    pos: Vec2,
+}
 
 fn main() {
     App::new()
@@ -97,29 +101,27 @@ fn main() {
         )
         .add_plugin(TweeningPlugin)
         .add_plugin(FpsPlugin)
+        .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(SoldierPlugin)
+        .add_plugin(UnitPlugin)
         .add_startup_system(setup)
         .add_startup_system(setup_ui)
         .add_startup_system(setup_lumberjacks)
+        .add_startup_system(spawn_camera)
+        .add_startup_system(spawn_world)
         .init_resource::<Cursor>()
         .init_resource::<Stats>()
         .init_resource::<UnitQuadTree>()
         .add_event::<TreeChopEvent>()
         .add_event::<ApplySelectionEvent>()
         .add_event::<DepositWoodEvent>()
+        .add_event::<TreeSpawnEvent>()
         .add_system(cursor_world_position)
         .add_system(keyboard_input)
         .add_system(move_camera)
         .add_system(tree_death)
-        .add_system(selection_change)
-        .add_system(selection_visual)
-        .add_system(unit_push_apart)
-        .add_system(selection_added)
-        .add_system(selection_removed.after(selection_change))
-        .add_system(unit_select)
-        .add_system(unit_vel)
-        .add_system(unit_move)
-        .add_system(unit_quad_tree_placement)
+        // .add_system(selection_change)
+        // .add_system(selection_visual)
         .add_system(lumberjack_animation)
         .add_system(lumberjack_next_action)
         .add_system(lumberjack_move_to_position_action)
@@ -129,7 +131,8 @@ fn main() {
         .add_system(deposit_wood_stat)
         .add_system(stat_text)
         .add_system(ysort)
-        .add_system(camera_view_check)
+        .add_system(tree_spawning.after(spawn_world))
+        //.add_system(camera_view_check)
         .add_system(fullscreen_toggle)
         .run();
 }
@@ -163,8 +166,6 @@ fn setup(
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     // todo move into setup functions
-    spawn_camera(&mut commands);
-    spawn_world(&asset_server, &mut texture_atlases, &mut commands);
     spawn_baracks(&asset_server, &mut texture_atlases, &mut commands);
     spawn_selection(&asset_server, texture_atlases, &mut commands);
 }
@@ -385,29 +386,38 @@ fn spawn_camera(commands: &mut Commands) {
     commands.spawn(camera);
 }
 
-fn spawn_tree(
-    pos: Vec2,
-    commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
-    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
+fn tree_spawning(
+    mut events: EventReader<TreeSpawnEvent>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
-    let texture_handle = asset_server.load("trees.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-    commands
-        .spawn(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle.clone(),
-            transform: Transform::from_translation(pos.extend(1.0)),
-            sprite: TextureAtlasSprite {
-                index: 1 + rand::random::<usize>() % 3,
+    // let texture_handle = asset_server.load("trees.png");
+    // let texture_atlas =
+    //     TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
+    // let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    for TreeSpawnEvent { pos } in events.iter() {
+        commands
+            // .spawn(SpriteSheetBundle {
+            //     texture_atlas: texture_atlas_handle.clone(),
+            //     transform: Transform::from_translation(pos.extend(1.0)),
+            //     sprite: TextureAtlasSprite {
+            //         index: 1 + rand::random::<usize>() % 3,
+            //         ..default()
+            //     },
+            //     ..default()
+            // })
+            // .insert(YSort)
+            // .insert(Cull2D)
+            .spawn(SceneBundle {
+                transform: Transform::from_translation(pos.extend(0.0))
+                    .with_rotation(Quat::from_rotation_x(PI / 2.0)),
+                scene: asset_server.load("models/tree_round.glb#Scene0"),
                 ..default()
-            },
-            ..default()
-        })
-        .insert(YSort)
-        .insert(Cull2D)
-        .insert(Tree { resource: 100 });
+            })
+            .insert(Name::new("Tree"))
+            .insert(Tree { resource: 100 });
+    }
 }
 
 // systems
@@ -555,8 +565,10 @@ fn tree_death(
 ) {
     for event in tree_chop_event.iter() {
         if let Ok(mut tree) = query.get_component_mut::<Tree>(event.0) {
-            if tree.resource == 0 {
-                commands.entity(event.0).despawn();
+            if tree.resource <= 0 {
+                if let Some(e) = commands.get_entity(event.0) {
+                    e.despawn_recursive();
+                }
             } else {
                 tree.resource -= 1;
             }
@@ -578,7 +590,7 @@ fn cursor_world_position(
     // get the window that the camera is displaying to (or the primary window)
     let window = match camera.target {
         RenderTarget::Window(window_ref) => match window_ref {
-            WindowRef::Entity(e) => windows.get(e).unwrap(),
+            WindowRef::Entity(e) => windows.get(e).expect("a window from an entity"),
             WindowRef::Primary => windows.single(),
         },
         _ => windows.single(),

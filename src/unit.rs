@@ -2,6 +2,20 @@ use crate::{ApplySelectionEvent, UnitQuadTree};
 use bevy::prelude::*;
 use quadtree_rs::{area::AreaBuilder, point::Point};
 
+pub struct UnitPlugin;
+
+impl Plugin for UnitPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_system(unit_push_apart)
+            // .add_system(unit_select)
+            .add_system(unit_vel)
+            .add_system(unit_move)
+            .add_system(unit_quad_tree_placement);
+        // .add_system(selection_added) // todo add selection in 3d
+        // .add_system(selection_removed.after(selection_change))
+    }
+}
+
 #[derive(Component, Default)]
 pub struct Unit {
     pub vel: Vec2,
@@ -17,7 +31,7 @@ pub struct SelectionBox;
 #[derive(Component)]
 pub struct SelectedMark;
 
-pub fn unit_quad_tree_placement(
+fn unit_quad_tree_placement(
     mut query: Query<(&Transform, &mut Unit, Entity)>,
     mut unit_quad_tree: ResMut<UnitQuadTree>,
 ) {
@@ -41,32 +55,24 @@ pub fn unit_quad_tree_placement(
     }
 }
 
-fn pos_to_point(unit_pos: Vec2) -> Point<u32> {
-    let pos = ((unit_pos / 8.0) + (Vec2::ONE * 128.0)).round();
-    Point {
-        x: pos.x as u32,
-        y: pos.y as u32,
-    }
-}
-
-pub fn unit_vel(mut query: Query<(&mut Transform, &Unit)>, time: Res<Time>) {
+fn unit_vel(mut query: Query<(&mut Transform, &Unit)>, time: Res<Time>) {
     query.par_iter_mut().for_each_mut(|(mut transform, unit)| {
         transform.translation += unit.vel.extend(0.0) * time.delta_seconds();
     });
 }
 
-pub fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
+fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
     query.par_iter_mut().for_each_mut(|mut unit| {
-        let target = unit.target_direction.clamp_length_max(1.0) * 60.; // max speed
+        let target = unit.target_direction.clamp_length_max(1.0) * 6.; // max speed
         let delta = target - unit.vel;
-        unit.vel += delta.clamp_length_max(time.delta_seconds() * 200.0); // accell
-        if unit.vel.length_squared() > 20.0 * 20.0 {
+        unit.vel += delta.clamp_length_max(time.delta_seconds() * 20.0); // accell
+        if unit.vel.length_squared() > 2.0 * 2.0 {
             unit.last_direction = unit.vel.normalize();
         }
     });
 }
 
-pub fn unit_select(
+fn unit_select(
     mut apply_selection: EventReader<ApplySelectionEvent>,
     mut query: Query<(&Transform, Entity), With<Unit>>,
     mut commands: Commands,
@@ -86,19 +92,19 @@ pub fn unit_select(
     }
 }
 
-pub fn selection_added(
+fn selection_added(
     unit_query: Query<&Children, (With<Unit>, Added<SelectedMark>)>,
     mut child_query: Query<&mut Visibility, With<SelectionBox>>,
 ) {
     for children in unit_query.iter() {
         for child in children.iter() {
-            let mut vis = child_query.get_mut(*child).unwrap();
+            let mut vis = child_query.get_mut(*child).expect("valid child");
             *vis = Visibility::Inherited;
         }
     }
 }
 
-pub fn selection_removed(
+fn selection_removed(
     mut removed: RemovedComponents<SelectedMark>,
     unit_query: Query<&Children, With<Unit>>,
     mut child_query: Query<&mut Visibility, With<SelectionBox>>,
@@ -106,15 +112,15 @@ pub fn selection_removed(
     // `RemovedComponents<T>::iter()` returns an interator with the `Entity`s that had their
     // `Component` `T` (in this case `MyComponent`) removed at some point earlier during the frame.
     for entity in removed.iter() {
-        let children = unit_query.get(entity).expect("valid children");
+        let children = unit_query.get(entity).expect("children");
         for child in children.iter() {
-            let mut vis = child_query.get_mut(*child).unwrap();
+            let mut vis = child_query.get_mut(*child).expect("a valid child");
             *vis = Visibility::Hidden;
         }
     }
 }
 
-pub fn unit_push_apart(
+fn unit_push_apart(
     transform_query: Query<(&Transform, Entity), With<Unit>>,
     mut unit_query: Query<(&mut Unit, Entity)>,
     unit_quad_tree: Res<UnitQuadTree>,
@@ -130,11 +136,11 @@ pub fn unit_push_apart(
                 while let Some(entry) = quad_tree_query.next() {
                     match transform_query.get(*entry.value_ref()) {
                         Ok((b, be)) if ae != be => {
-                            let delta = (b.translation - a.translation).truncate() * 0.08;
+                            let delta = (b.translation - a.translation).truncate() * 1.0; // todo how big is a unit?
                             let l = delta.length_squared();
                             if l < 1.0 && l > 0.01 {
                                 let push = delta.normalize() * (1.0 - l);
-                                a_unit.vel -= 800.0 * time.delta_seconds() * push;
+                                a_unit.vel -= 80.0 * time.delta_seconds() * push;
                             }
                         }
                         Err(_) | Ok(_) => { /* Do nothing */ }
@@ -146,11 +152,18 @@ pub fn unit_push_apart(
     })
 }
 
+fn pos_to_point(unit_pos: Vec2) -> Point<u32> {
+    let pos = (unit_pos + (Vec2::ONE * 128.0)).round();
+    Point {
+        x: pos.x as u32,
+        y: pos.y as u32,
+    }
+}
+
 fn pos_to_region(unit_pos: Vec2) -> quadtree_rs::area::Area<u32> {
-    let region = AreaBuilder::default()
+    AreaBuilder::default()
         .anchor(pos_to_point(unit_pos) - Point { x: 1, y: 1 })
         .dimensions((3, 3))
         .build()
-        .unwrap();
-    region
+        .expect("valid region")
 }

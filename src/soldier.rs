@@ -4,6 +4,17 @@ use crate::{
     unit::{SelectedMark, SelectionBox, Unit},
     Cull2D, Cursor, YSort,
 };
+pub struct SoldierPlugin;
+
+impl Plugin for SoldierPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<SoldierResource>()
+            .add_event::<SpawnSoldierEvent>()
+            .add_system(soldier_spawn)
+            .add_system(move_to_position_action)
+            .add_system(next_action);
+    }
+}
 
 #[derive(Component, Default)]
 pub struct Soldier {
@@ -40,18 +51,6 @@ pub enum Armor {
 }
 
 pub struct SpawnSoldierEvent(pub Vec2);
-
-pub struct SoldierPlugin;
-
-impl Plugin for SoldierPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<SoldierResource>()
-            .add_event::<SpawnSoldierEvent>()
-            .add_system(soldier_spawn)
-            .add_system(move_to_position_action)
-            .add_system(next_action);
-    }
-}
 
 #[derive(Resource)]
 pub struct SoldierResource {
@@ -95,12 +94,16 @@ impl FromWorld for SoldierResource {
 }
 
 fn load_image<'a, P: Into<AssetPath<'a>>>(world: &mut World, path: P) -> Handle<Image> {
-    let asset_server = world.get_resource::<AssetServer>().unwrap();
+    let asset_server = world
+        .get_resource::<AssetServer>()
+        .expect("an asset server resource");
     asset_server.load(path)
 }
 
 fn add_texture_atlas(world: &mut World, texture_atlas: TextureAtlas) -> Handle<TextureAtlas> {
-    let mut texture_atlases = world.get_resource_mut::<Assets<TextureAtlas>>().unwrap();
+    let mut texture_atlases = world
+        .get_resource_mut::<Assets<TextureAtlas>>()
+        .expect("asset server resource");
     texture_atlases.add(texture_atlas)
 }
 

@@ -2,5 +2,6 @@
 e = ":sh cargo run"
 [keys.normal]
 "playpause" = ":sh cargo run"
-"F5" = ":sh cargo run"
+# "F5" = ":sh cargo run"
+# Do this with zellij instead
 
