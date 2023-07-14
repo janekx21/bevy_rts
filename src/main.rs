@@ -314,9 +314,10 @@ fn setup_lumberjacks(
 }
 
 fn spawn_world(
-    asset_server: &Res<AssetServer>,
-    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
-    commands: &mut Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    mut commands: Commands,
+    mut spawn_tree_events: EventWriter<TreeSpawnEvent>,
 ) {
     let texture_handle = asset_server.load("ground/grass_deco.png");
     let texture_atlas =
@@ -362,25 +363,15 @@ fn spawn_world(
 
             if height >= 0.1 && height <= 0.3 {
                 if rand::random::<i32>() % 8 == 0 {
-                    spawn_tree(
-                        pos + (random_vec2() * 8.0).round(),
-                        commands,
-                        asset_server,
-                        texture_atlases,
-                    );
+                    let pos = pos + (random_vec2() * 8.0).round();
+                    spawn_tree_events.send(TreeSpawnEvent { pos })
                 }
             }
         }
     }
-
-    for i in (0..360).step_by(15) {
-        let rotation = Mat2::from_angle(i as f32 * PI / 180.0);
-        let pos = rotation.mul_vec2(Vec2::X * 16.0 * 12.0);
-        spawn_tree(pos, commands, &asset_server, texture_atlases);
-    }
 }
 
-fn spawn_camera(commands: &mut Commands) {
+fn spawn_camera(mut commands: Commands) {
     let mut camera = Camera2dBundle::default();
     camera.projection.scale = 0.5;
     commands.spawn(camera);
@@ -392,29 +383,23 @@ fn tree_spawning(
     asset_server: Res<AssetServer>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
-    // let texture_handle = asset_server.load("trees.png");
-    // let texture_atlas =
-    //     TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
-    // let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    let texture_handle = asset_server.load("trees.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
     for TreeSpawnEvent { pos } in events.iter() {
         commands
-            // .spawn(SpriteSheetBundle {
-            //     texture_atlas: texture_atlas_handle.clone(),
-            //     transform: Transform::from_translation(pos.extend(1.0)),
-            //     sprite: TextureAtlasSprite {
-            //         index: 1 + rand::random::<usize>() % 3,
-            //         ..default()
-            //     },
-            //     ..default()
-            // })
-            // .insert(YSort)
-            // .insert(Cull2D)
-            .spawn(SceneBundle {
-                transform: Transform::from_translation(pos.extend(0.0))
-                    .with_rotation(Quat::from_rotation_x(PI / 2.0)),
-                scene: asset_server.load("models/tree_round.glb#Scene0"),
+            .spawn(SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle.clone(),
+                transform: Transform::from_translation(pos.extend(1.0)),
+                sprite: TextureAtlasSprite {
+                    index: 1 + rand::random::<usize>() % 3,
+                    ..default()
+                },
                 ..default()
             })
+            .insert(YSort)
+            .insert(Cull2D)
             .insert(Name::new("Tree"))
             .insert(Tree { resource: 100 });
     }

@@ -1,4 +1,4 @@
-use crate::{ApplySelectionEvent, UnitQuadTree};
+use crate::{selection_change, ApplySelectionEvent, UnitQuadTree};
 use bevy::prelude::*;
 use quadtree_rs::{area::AreaBuilder, point::Point};
 
@@ -7,12 +7,12 @@ pub struct UnitPlugin;
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
         app.add_system(unit_push_apart)
-            // .add_system(unit_select)
+            .add_system(unit_select)
             .add_system(unit_vel)
             .add_system(unit_move)
-            .add_system(unit_quad_tree_placement);
-        // .add_system(selection_added) // todo add selection in 3d
-        // .add_system(selection_removed.after(selection_change))
+            .add_system(unit_quad_tree_placement)
+            .add_system(selection_added)
+            .add_system(selection_removed.after(selection_change));
     }
 }
 
@@ -61,12 +61,16 @@ fn unit_vel(mut query: Query<(&mut Transform, &Unit)>, time: Res<Time>) {
     });
 }
 
+const MAX_SPEED: f32 = 60.0;
+const ACCELLERATION: f32 = 200.0;
+const MOVEMENT_DEAD_ZONE: f32 = 2.0;
+
 fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
     query.par_iter_mut().for_each_mut(|mut unit| {
-        let target = unit.target_direction.clamp_length_max(1.0) * 6.; // max speed
+        let target = unit.target_direction.clamp_length_max(1.0) * MAX_SPEED; // max speed
         let delta = target - unit.vel;
-        unit.vel += delta.clamp_length_max(time.delta_seconds() * 20.0); // accell
-        if unit.vel.length_squared() > 2.0 * 2.0 {
+        unit.vel += delta.clamp_length_max(time.delta_seconds() * ACCELLERATION); // accell
+        if unit.vel.length_squared() > MOVEMENT_DEAD_ZONE * MOVEMENT_DEAD_ZONE {
             unit.last_direction = unit.vel.normalize();
         }
     });
@@ -120,6 +124,9 @@ fn selection_removed(
     }
 }
 
+const UNIT_SIZE: f32 = 12.0;
+const PUSH_APART_FORCE: f32 = 800.0;
+
 fn unit_push_apart(
     transform_query: Query<(&Transform, Entity), With<Unit>>,
     mut unit_query: Query<(&mut Unit, Entity)>,
@@ -136,11 +143,11 @@ fn unit_push_apart(
                 while let Some(entry) = quad_tree_query.next() {
                     match transform_query.get(*entry.value_ref()) {
                         Ok((b, be)) if ae != be => {
-                            let delta = (b.translation - a.translation).truncate() * 1.0; // todo how big is a unit?
+                            let delta = (b.translation - a.translation).truncate() / UNIT_SIZE; // todo how big is a unit?
                             let l = delta.length_squared();
                             if l < 1.0 && l > 0.01 {
                                 let push = delta.normalize() * (1.0 - l);
-                                a_unit.vel -= 80.0 * time.delta_seconds() * push;
+                                a_unit.vel -= PUSH_APART_FORCE * time.delta_seconds() * push;
                             }
                         }
                         Err(_) | Ok(_) => { /* Do nothing */ }
