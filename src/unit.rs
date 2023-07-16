@@ -160,7 +160,7 @@ fn unit_push_apart(
 }
 
 fn pos_to_point(unit_pos: Vec2) -> Point<u32> {
-    let pos = (unit_pos + (Vec2::ONE * 128.0)).round();
+    let pos = ((unit_pos / 16.0) + (Vec2::ONE * 128.0)).round();
     Point {
         x: pos.x as u32,
         y: pos.y as u32,

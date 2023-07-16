@@ -1,62 +1,70 @@
 use crate::unit::{SelectedMark, SelectionBox, Unit};
-use crate::util::find_nearest;
-use crate::{Barrack, Cull2D, Cursor, DepositWoodEvent, Tree, TreeChopEvent, YSort};
+use crate::util::{find_nearest, nearest_entity};
+use crate::{Barrack, Cull2D, Cursor, DepositWoodEvent, SpriteSheets, Tree, TreeChopEvent, YSort};
 use bevy::prelude::*;
 
-#[derive(Component, Default)]
+pub struct LumberjackPlugin;
+
+impl Plugin for LumberjackPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_event::<SpawnLumberjackEvent>()
+            .add_system(lumberjack_spawning)
+            .add_system(lumberjack_animation)
+            .add_system(lumberjack_next_action)
+            .add_system(lumberjack_move_to_position_action);
+    }
+}
+
+#[derive(Component, Default, Reflect)]
 pub struct Lumberjack {
     action: Action,
     wood: u32,
     animation_timer: f32,
 }
 
-#[derive(Default)]
+#[derive(Default, Reflect)]
 pub enum Action {
     #[default]
     Idle,
     MoveToPosition(Vec2),
     CollectResource(Entity),
     DepositResource(Entity),
-    Chop(f32),
+    Chop {
+        timeout: f32,
+        target: Entity,
+    },
 }
 
-pub fn lumberjack_spawn(
-    commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
-    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
-    pos: Vec2,
+pub struct SpawnLumberjackEvent(pub Vec2);
+
+pub fn lumberjack_spawning(
+    mut commands: Commands,
+    mut events: EventReader<SpawnLumberjackEvent>,
+    sprite_sheets: Res<SpriteSheets>,
 ) {
-    let texture_handle = asset_server.load("farmer_red.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 12, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
-    let box_selector = {
-        let texture_handle = asset_server.load("box_selector.png");
-        let texture_atlas =
-            TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 1, None, None);
-        texture_atlases.add(texture_atlas)
-    };
-
-    commands
-        .spawn(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle,
-            transform: Transform::from_translation(pos.extend(1.0)),
-            ..default()
-        })
-        .insert(YSort)
-        .insert(Cull2D)
-        .insert(Unit::default())
-        .insert(Lumberjack::default())
-        .with_children(|builder| {
-            builder
-                .spawn(SpriteSheetBundle {
-                    texture_atlas: box_selector,
-                    visibility: Visibility::Hidden,
-                    ..default()
-                })
-                .insert(SelectionBox);
-        });
+    for event in events.iter() {
+        let pos = event.0;
+        commands
+            .spawn(SpriteSheetBundle {
+                texture_atlas: sprite_sheets.farmer_red.clone(),
+                transform: Transform::from_translation(pos.extend(1.0)),
+                ..default()
+            })
+            .insert(Name::new("Luberjack"))
+            .insert(YSort)
+            .insert(Cull2D)
+            .insert(Unit::default())
+            .insert(Lumberjack::default())
+            .with_children(|builder| {
+                builder
+                    .spawn(SpriteSheetBundle {
+                        texture_atlas: sprite_sheets.box_selector.clone(),
+                        visibility: Visibility::Hidden,
+                        ..default()
+                    })
+                    .insert(SelectionBox);
+            });
+    }
 }
 
 pub fn lumberjack_animation(mut query: Query<(&Unit, &Lumberjack, &mut TextureAtlasSprite)>) {
@@ -71,8 +79,8 @@ pub fn lumberjack_animation(mut query: Query<(&Unit, &Lumberjack, &mut TextureAt
         };
 
         (*sprite).index = match worker.action {
-            Action::Chop(timer) => {
-                let animation_frame = (timer.clamp(0.0, 1.0) * 3.0).floor() as usize;
+            Action::Chop { timeout, target } => {
+                let animation_frame = (timeout.clamp(0.0, 1.0) * 3.0).floor() as usize;
                 40 + direction + animation_frame
             }
             _ if unit.vel.length() > 20.0 => {
@@ -83,10 +91,12 @@ pub fn lumberjack_animation(mut query: Query<(&Unit, &Lumberjack, &mut TextureAt
     }
 }
 
+const BARACK_SIZE: f32 = 20.0;
+
 pub fn lumberjack_next_action(
     mut query: Query<(&mut Lumberjack, &mut Unit, &Transform)>,
     barrack_query: Query<(Entity, &Transform), (With<Barrack>, Without<Unit>)>,
-    tree_query: Query<(Entity, &Transform), (With<Tree>, Without<Unit>)>,
+    tree_query: Query<(Entity, &Transform, &Tree), Without<Unit>>,
     mut tree_chop_event: EventWriter<TreeChopEvent>,
     entity_query: Query<Entity>,
     mut deposit_wood: EventWriter<DepositWoodEvent>,
@@ -104,7 +114,11 @@ pub fn lumberjack_next_action(
                         .map(|f| f.0)
                         .map_or(Action::Idle, Action::DepositResource);
                 } else {
-                    worker.action = find_nearest(tree_query.iter(), pos)
+                    worker.action = tree_query
+                        .iter()
+                        .fold(None, |acc, (a, b, c)| {
+                            nearest_entity(acc, pos, (a, b.translation.truncate()))
+                        })
                         .map(|f| f.0)
                         .map_or(Action::Idle, Action::CollectResource);
                 }
@@ -118,39 +132,52 @@ pub fn lumberjack_next_action(
                 }
             }
             Action::CollectResource(target) => {
-                if let Ok((tree_entity, tree_transform)) = tree_query.get(target) {
-                    // move towards tree
-                    let target_pos = tree_transform.translation.truncate();
-                    unit.target_direction = (target_pos - pos).normalize();
-                    if Vec2::distance_squared(target_pos, pos) < 10.0 * 10.0 {
-                        tree_chop_event.send(TreeChopEvent(tree_entity));
-                        worker.action = Action::Chop(1.0);
+                match tree_query.get(target) {
+                    Ok((tree_entity, tree_transform, tree)) if tree.resource >= 0 => {
+                        // move towards tree
+                        let target_pos = tree_transform.translation.truncate();
+                        unit.target_direction = (target_pos - pos).normalize();
+                        if Vec2::distance_squared(target_pos, pos) < 10.0 * 10.0 {
+                            worker.action = Action::Chop {
+                                timeout: 1.0,
+                                target: tree_entity,
+                            };
+                        }
                     }
-                } else if entity_query.get(target).is_err() {
-                    worker.action = Action::Idle;
-                    worker.animation_timer = 0.0;
+                    _ => worker.action = Action::Idle,
                 }
             }
             Action::DepositResource(target) => {
-                if let Ok(barrack_transform) = barrack_query.get_component::<Transform>(target) {
-                    // move towards barrack
-                    let target_pos = barrack_transform.translation.truncate();
-                    unit.target_direction = (target_pos - pos).normalize();
-                    if Vec2::distance_squared(target_pos, pos) < 20.0 * 20.0 {
-                        // found target
-                        worker.wood = 0;
-                        worker.action = Action::Idle;
-                        worker.animation_timer = 0.0;
-                        deposit_wood.send(DepositWoodEvent(1))
+                match barrack_query.get_component::<Transform>(target) {
+                    Ok(barrack_transform) => {
+                        // move towards barrack
+                        let target_pos = barrack_transform.translation.truncate();
+                        unit.target_direction = (target_pos - pos).normalize();
+                        if Vec2::distance_squared(target_pos, pos) < BARACK_SIZE * BARACK_SIZE {
+                            // found target
+                            worker.wood = 0;
+                            worker.action = Action::Idle;
+                            worker.animation_timer = 0.0;
+                            deposit_wood.send(DepositWoodEvent(1))
+                        }
                     }
+                    _ => worker.action = Action::Idle,
                 }
             }
-            Action::Chop(timeout) => {
+            Action::Chop { timeout, target } => {
                 unit.target_direction = Vec2::ZERO;
                 if timeout > 0.0 {
-                    worker.action = Action::Chop(timeout - time.delta_seconds() * (8.0 / 3.0));
+                    worker.action = Action::Chop {
+                        timeout: timeout - time.delta_seconds() * (8.0 / 3.0),
+                        target,
+                    };
                 } else {
-                    worker.wood += 1;
+                    if let Ok((tree_entity, tree_transform, tree)) = tree_query.get(target) {
+                        if tree.resource >= 0 {
+                            tree_chop_event.send(TreeChopEvent(tree_entity));
+                            worker.wood += 1;
+                        }
+                    }
                     worker.action = Action::Idle;
                     worker.animation_timer = 0.0;
                 }

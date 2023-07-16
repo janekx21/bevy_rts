@@ -11,6 +11,7 @@ use bevy::ecs::query::QueryIter;
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
+use bevy::utils::HashMap;
 use bevy::window::PresentMode;
 use bevy::window::WindowMode;
 use bevy::window::WindowRef;
@@ -21,6 +22,9 @@ use quadtree_rs::Quadtree;
 use soldier::SoldierPlugin;
 use soldier::SpawnSoldierEvent;
 use std::f32::consts::PI;
+use util::add_texture_atlas;
+use util::ease_in_out_cubic;
+use util::load_image;
 use util::random_vec2;
 
 // buildings
@@ -30,7 +34,7 @@ pub struct Barrack;
 // resources
 #[derive(Component)]
 pub struct Tree {
-    resource: u32,
+    resource: i32,
 }
 
 // ui components
@@ -65,12 +69,15 @@ struct Cull2D;
 #[derive(Resource, Deref, DerefMut)]
 pub struct UnitQuadTree(Quadtree<u32, Entity>);
 
-impl Default for UnitQuadTree {
-    fn default() -> Self {
-        let tree = Quadtree::<u32, Entity>::new(8);
-        println!("created tree width={}", tree.width());
-        UnitQuadTree(tree)
-    }
+#[derive(Resource)]
+pub struct SpriteSheets {
+    swordsman_red: Handle<TextureAtlas>,
+    box_selector: Handle<TextureAtlas>,
+    highlighted_boxes: Handle<TextureAtlas>,
+    trees: Handle<TextureAtlas>,
+    farmer_red: Handle<TextureAtlas>,
+    grass_deco: Handle<TextureAtlas>,
+    barracks_red: Handle<TextureAtlas>,
 }
 
 // events
@@ -104,11 +111,15 @@ fn main() {
         .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(SoldierPlugin)
         .add_plugin(UnitPlugin)
+        .add_plugin(LumberjackPlugin)
         .add_startup_system(setup)
         .add_startup_system(setup_ui)
         .add_startup_system(setup_lumberjacks)
         .add_startup_system(spawn_camera)
         .add_startup_system(spawn_world)
+        .add_startup_system(spawn_baracks)
+        .add_startup_system(spawn_selection)
+        .init_resource::<SpriteSheets>()
         .init_resource::<Cursor>()
         .init_resource::<Stats>()
         .init_resource::<UnitQuadTree>()
@@ -116,15 +127,13 @@ fn main() {
         .add_event::<ApplySelectionEvent>()
         .add_event::<DepositWoodEvent>()
         .add_event::<TreeSpawnEvent>()
+        .register_type::<Lumberjack>()
         .add_system(cursor_world_position)
         .add_system(keyboard_input)
         .add_system(move_camera)
         .add_system(tree_death)
-        // .add_system(selection_change)
-        // .add_system(selection_visual)
-        .add_system(lumberjack_animation)
-        .add_system(lumberjack_next_action)
-        .add_system(lumberjack_move_to_position_action)
+        .add_system(selection_change)
+        .add_system(selection_visual)
         .add_system(button_style)
         .add_system(lumberjack_spawn_button)
         .add_system(spawn_menu_tween)
@@ -132,28 +141,97 @@ fn main() {
         .add_system(stat_text)
         .add_system(ysort)
         .add_system(tree_spawning.after(spawn_world))
-        //.add_system(camera_view_check)
+        .add_system(camera_view_check)
         .add_system(fullscreen_toggle)
         .run();
 }
 
-fn camera_view_check(
-    camera_query: Query<(&Transform, &OrthographicProjection), With<Camera>>,
-    mut visible_query: Query<(&GlobalTransform, &mut Visibility), With<Cull2D>>,
-) {
-    const MAX_TILE_SIZE: f32 = 16.0;
-    for (camera_transform, projection) in camera_query.iter() {
-        let camera_pos = camera_transform.translation.truncate();
-        let mut rect = projection.area.inset(MAX_TILE_SIZE);
-        rect.min += camera_pos;
-        rect.max += camera_pos;
-        for (transform, mut visible) in visible_query.iter_mut() {
-            let pos = transform.translation().truncate();
-            *visible = if rect.contains(pos) {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
+impl Default for UnitQuadTree {
+    fn default() -> Self {
+        UnitQuadTree(Quadtree::<u32, Entity>::new(8))
+    }
+}
+
+impl FromWorld for SpriteSheets {
+    fn from_world(world: &mut World) -> Self {
+        SpriteSheets {
+            swordsman_red: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "swordsman_red.png"),
+                    Vec2::new(16.0, 16.0),
+                    5,
+                    12,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
+            farmer_red: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "farmer_red.png"),
+                    Vec2::new(16.0, 16.0),
+                    5,
+                    12,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
+            box_selector: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "box_selector.png"),
+                    Vec2::new(16.0, 16.0),
+                    2,
+                    1,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
+            highlighted_boxes: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "highlighted_boxes.png"),
+                    Vec2::new(16.0, 16.0),
+                    5,
+                    1,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
+            trees: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "trees.png"),
+                    Vec2::new(16.0, 16.0),
+                    4,
+                    1,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
+            grass_deco: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "ground/grass_deco.png"),
+                    Vec2::new(16.0, 16.0),
+                    2,
+                    2,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
+            barracks_red: {
+                let texture_atlas = TextureAtlas::from_grid(
+                    load_image(world, "barracks_red.png"),
+                    Vec2::new(16.0, 16.0),
+                    4,
+                    5,
+                    None,
+                    None,
+                );
+                add_texture_atlas(world, texture_atlas)
+            },
         }
     }
 }
@@ -166,8 +244,6 @@ fn setup(
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     // todo move into setup functions
-    spawn_baracks(&asset_server, &mut texture_atlases, &mut commands);
-    spawn_selection(&asset_server, texture_atlases, &mut commands);
 }
 
 fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -245,19 +321,10 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-fn spawn_selection(
-    asset_server: &Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-    commands: &mut Commands,
-) {
-    let texture_handle = asset_server.load("highlighted_boxes.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 5, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
+fn spawn_selection(mut commands: Commands, sprite_sheets: Res<SpriteSheets>) {
     commands
         .spawn(SpriteSheetBundle {
-            texture_atlas: texture_atlas_handle,
+            texture_atlas: sprite_sheets.highlighted_boxes.clone(),
             transform: Transform::from_xyz(0.0, 0.0, 200.0),
             sprite: TextureAtlasSprite {
                 index: 1,
@@ -270,20 +337,11 @@ fn spawn_selection(
         .insert(Selection::None);
 }
 
-fn spawn_baracks(
-    asset_server: &Res<AssetServer>,
-    texture_atlases: &mut ResMut<Assets<TextureAtlas>>,
-    commands: &mut Commands,
-) {
-    let texture_handle = asset_server.load("barracks_red.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 5, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
+fn spawn_baracks(mut commands: Commands, sprite_sheets: Res<SpriteSheets>) {
     for i in (-300..300).step_by(50) {
         commands
             .spawn(SpriteSheetBundle {
-                texture_atlas: texture_atlas_handle.clone(),
+                texture_atlas: sprite_sheets.barracks_red.clone(),
                 transform: Transform::from_translation(Vec3::new(i as f32, 0.0, 0.0)),
                 ..default()
             })
@@ -298,32 +356,23 @@ fn setup_lumberjacks(
     mut commands: Commands,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
     mut unit_quad_tree: ResMut<UnitQuadTree>,
+    mut events: EventWriter<SpawnLumberjackEvent>,
 ) {
     let count = 10;
     for x in -count..count {
         for y in -count..count {
             let pos = Vec2::new(x as f32 * 16.0, y as f32 * 16.0);
-            lumberjack_spawn(
-                &mut commands,
-                &asset_server,
-                &mut texture_atlases,
-                pos + simplex_noise_2d(pos) * 100.,
-            )
+            let pos = pos + simplex_noise_2d(pos) * 100.0;
+            events.send(SpawnLumberjackEvent(pos));
         }
     }
 }
 
 fn spawn_world(
-    asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
     mut commands: Commands,
     mut spawn_tree_events: EventWriter<TreeSpawnEvent>,
+    sprite_sheets: Res<SpriteSheets>,
 ) {
-    let texture_handle = asset_server.load("ground/grass_deco.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 2, 2, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-
     for x in 0..100 {
         for y in 0..100 {
             let pos = Vec2::new(x as f32, y as f32) * 16. - Vec2::ONE * 16. * 50.;
@@ -343,11 +392,12 @@ fn spawn_world(
                     transform: Transform::from_translation(pos.extend(0.0)),
                     ..default()
                 })
+                .insert(Name::new("Ground"))
                 .insert(Cull2D)
                 .with_children(|builder| {
                     if rand::random::<u8>() % 5 == 0 {
                         builder.spawn(SpriteSheetBundle {
-                            texture_atlas: texture_atlas_handle.clone(),
+                            texture_atlas: sprite_sheets.grass_deco.clone(),
                             sprite: TextureAtlasSprite {
                                 index: rand::random::<usize>() % 4,
                                 flip_x: rand::random(),
@@ -380,17 +430,12 @@ fn spawn_camera(mut commands: Commands) {
 fn tree_spawning(
     mut events: EventReader<TreeSpawnEvent>,
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    sprite_sheets: Res<SpriteSheets>,
 ) {
-    let texture_handle = asset_server.load("trees.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 4, 1, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
     for TreeSpawnEvent { pos } in events.iter() {
         commands
             .spawn(SpriteSheetBundle {
-                texture_atlas: texture_atlas_handle.clone(),
+                texture_atlas: sprite_sheets.trees.clone(),
                 transform: Transform::from_translation(pos.extend(1.0)),
                 sprite: TextureAtlasSprite {
                     index: 1 + rand::random::<usize>() % 3,
@@ -398,6 +443,7 @@ fn tree_spawning(
                 },
                 ..default()
             })
+            .insert(Name::new("Tree"))
             .insert(YSort)
             .insert(Cull2D)
             .insert(Name::new("Tree"))
@@ -467,14 +513,6 @@ fn spawn_menu_tween(
     }
 }
 
-fn ease_in_out_cubic(x: f32) -> f32 {
-    if x < 0.5 {
-        4.0 * x * x * x
-    } else {
-        1.0 - f32::powf(-2.0 * x + 2.0, 3.0) / 2.0
-    }
-}
-
 fn deposit_wood_stat(mut deposit_wood: EventReader<DepositWoodEvent>, mut stats: ResMut<Stats>) {
     for event in deposit_wood.iter() {
         stats.wood += event.0
@@ -516,7 +554,6 @@ fn move_camera(
     }
     let move_keyboard = dir_keyboard.clamp_length_max(1.0) * 200.0 * time.delta_seconds();
 
-    // todo move to own system
     let dir_mouse = motion_evr
         .iter()
         .map(|e| e.delta)
@@ -640,5 +677,45 @@ fn selection_visual(mut query: Query<(&mut Transform, &mut TextureAtlasSprite, &
 fn ysort(mut query: Query<&mut Transform, With<YSort>>) {
     for mut transform in query.iter_mut() {
         transform.translation.z = 200.0 - transform.translation.y * 0.0001;
+    }
+}
+fn camera_view_check(
+    camera_query: Query<(&Transform, &OrthographicProjection), With<Camera>>,
+    mut visible_query: Query<
+        (&GlobalTransform, &mut Visibility, &Handle<TextureAtlas>),
+        With<Cull2D>,
+    >,
+    texute_atlases: Res<Assets<TextureAtlas>>,
+    mut size_cache: Local<HashMap<Handle<TextureAtlas>, f32>>,
+) {
+    for (camera_transform, projection) in camera_query.iter() {
+        let camera_pos = camera_transform.translation.truncate();
+        for (transform, mut visible, tex) in visible_query.iter_mut() {
+            let size = *(*size_cache).entry(tex.clone()).or_insert_with(|| {
+                texute_atlases
+                    .get(tex)
+                    .expect("valid texture")
+                    .textures
+                    .iter()
+                    .map(Rect::size)
+                    .map(Vec2::max_element)
+                    .map(f32::round)
+                    .map(|f| f as i32)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .max()
+                    .unwrap_or_default() as f32
+            });
+
+            let mut rect = projection.area.inset(size);
+            rect.min += camera_pos;
+            rect.max += camera_pos;
+            let pos = transform.translation().truncate();
+            *visible = if rect.contains(pos) {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+        }
     }
 }

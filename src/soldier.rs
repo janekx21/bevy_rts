@@ -2,14 +2,14 @@ use bevy::{asset::AssetPath, prelude::*};
 
 use crate::{
     unit::{SelectedMark, SelectionBox, Unit},
-    Cull2D, Cursor, YSort,
+    util::{add_texture_atlas, load_image},
+    Cull2D, Cursor, SpriteSheets, YSort,
 };
 pub struct SoldierPlugin;
 
 impl Plugin for SoldierPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SoldierResource>()
-            .add_event::<SpawnSoldierEvent>()
+        app.add_event::<SpawnSoldierEvent>()
             .add_system(soldier_spawn)
             .add_system(move_to_position_action)
             .add_system(next_action);
@@ -52,75 +52,19 @@ pub enum Armor {
 
 pub struct SpawnSoldierEvent(pub Vec2);
 
-#[derive(Resource)]
-pub struct SoldierResource {
-    swordsman_red: Handle<TextureAtlas>,
-    box_selector: Handle<TextureAtlas>,
-}
-
-impl FromWorld for SoldierResource {
-    fn from_world(world: &mut World) -> Self {
-        let swordsman_red = {
-            let texture_atlas = TextureAtlas::from_grid(
-                load_image(world, "swordsman_red.png"),
-                Vec2::new(16.0, 16.0),
-                5,
-                12,
-                None,
-                None,
-            );
-
-            add_texture_atlas(world, texture_atlas)
-        };
-
-        let box_selector = {
-            let texture_atlas = TextureAtlas::from_grid(
-                load_image(world, "box_selector.png"),
-                Vec2::new(16.0, 16.0),
-                2,
-                1,
-                None,
-                None,
-            );
-
-            add_texture_atlas(world, texture_atlas)
-        };
-
-        SoldierResource {
-            swordsman_red,
-            box_selector,
-        }
-    }
-}
-
-fn load_image<'a, P: Into<AssetPath<'a>>>(world: &mut World, path: P) -> Handle<Image> {
-    let asset_server = world
-        .get_resource::<AssetServer>()
-        .expect("an asset server resource");
-    asset_server.load(path)
-}
-
-fn add_texture_atlas(world: &mut World, texture_atlas: TextureAtlas) -> Handle<TextureAtlas> {
-    let mut texture_atlases = world
-        .get_resource_mut::<Assets<TextureAtlas>>()
-        .expect("asset server resource");
-    texture_atlases.add(texture_atlas)
-}
-
 pub fn soldier_spawn(
     mut spawn_event: EventReader<SpawnSoldierEvent>,
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-    soldier_resource: Res<SoldierResource>,
+    sprite_sheets: Res<SpriteSheets>,
 ) {
     for event in spawn_event.iter() {
         commands
             .spawn(SpriteSheetBundle {
-                texture_atlas: soldier_resource.swordsman_red.clone(),
+                texture_atlas: sprite_sheets.swordsman_red.clone(),
                 transform: Transform::from_translation(event.0.extend(1.0)),
                 ..default()
             })
+            .insert(Name::new("Soldier"))
             .insert(YSort)
             .insert(Cull2D)
             .insert(Unit::default())
@@ -128,7 +72,7 @@ pub fn soldier_spawn(
             .with_children(|builder| {
                 builder
                     .spawn(SpriteSheetBundle {
-                        texture_atlas: soldier_resource.box_selector.clone(),
+                        texture_atlas: sprite_sheets.box_selector.clone(),
                         visibility: Visibility::Hidden,
                         ..default()
                     })
