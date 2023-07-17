@@ -78,7 +78,7 @@ fn unit_move(mut query: Query<&mut Unit>, time: Res<Time>) {
 
 fn unit_select(
     mut apply_selection: EventReader<ApplySelectionEvent>,
-    mut query: Query<(&Transform, Entity), With<Unit>>,
+    query: Query<(&Transform, Entity), With<Unit>>,
     mut commands: Commands,
 ) {
     for event in apply_selection.iter() {
@@ -139,8 +139,8 @@ fn unit_push_apart(
             Ok((a, _)) => {
                 let region = pos_to_region(a.translation.truncate());
 
-                let mut quad_tree_query = quad_tree.query_strict(region);
-                while let Some(entry) = quad_tree_query.next() {
+                let quad_tree_query = quad_tree.query_strict(region);
+                for entry in quad_tree_query {
                     match transform_query.get(*entry.value_ref()) {
                         Ok((b, be)) if ae != be => {
                             let delta = (b.translation - a.translation).truncate() / UNIT_SIZE; // todo how big is a unit?

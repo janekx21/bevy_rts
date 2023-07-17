@@ -1,8 +1,7 @@
-use bevy::{asset::AssetPath, prelude::*};
+use bevy::{prelude::*};
 
 use crate::{
     unit::{SelectedMark, SelectionBox, Unit},
-    util::{add_texture_atlas, load_image},
     Cull2D, Cursor, SpriteSheets, YSort,
 };
 pub struct SoldierPlugin;
@@ -96,7 +95,7 @@ pub fn move_to_position_action(
     }
 }
 
-pub fn next_action(mut query: Query<(&mut Soldier, &mut Unit, &Transform)>, time: Res<Time>) {
+pub fn next_action(mut query: Query<(&mut Soldier, &mut Unit, &Transform)>, _time: Res<Time>) {
     for (mut soldier, mut unit, transform) in query.iter_mut() {
         let pos = transform.translation.truncate();
         match soldier.action {
@@ -105,7 +104,7 @@ pub fn next_action(mut query: Query<(&mut Soldier, &mut Unit, &Transform)>, time
             }
             SoldierAction::MoveToPosition {
                 target,
-                attack_move,
+                attack_move: _,
             } => {
                 let delta = target - pos;
                 unit.target_direction = delta;

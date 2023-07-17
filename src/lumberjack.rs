@@ -78,8 +78,8 @@ pub fn lumberjack_animation(mut query: Query<(&Unit, &Lumberjack, &mut TextureAt
             _ => 0,                                   // no direction -> down
         };
 
-        (*sprite).index = match worker.action {
-            Action::Chop { timeout, target } => {
+        sprite.index = match worker.action {
+            Action::Chop { timeout, target: _ } => {
                 let animation_frame = (timeout.clamp(0.0, 1.0) * 3.0).floor() as usize;
                 40 + direction + animation_frame
             }
@@ -98,7 +98,7 @@ pub fn lumberjack_next_action(
     barrack_query: Query<(Entity, &Transform), (With<Barrack>, Without<Unit>)>,
     tree_query: Query<(Entity, &Transform, &Tree), Without<Unit>>,
     mut tree_chop_event: EventWriter<TreeChopEvent>,
-    entity_query: Query<Entity>,
+    _entity_query: Query<Entity>,
     mut deposit_wood: EventWriter<DepositWoodEvent>,
     time: Res<Time>,
 ) {
@@ -116,7 +116,7 @@ pub fn lumberjack_next_action(
                 } else {
                     worker.action = tree_query
                         .iter()
-                        .fold(None, |acc, (a, b, c)| {
+                        .fold(None, |acc, (a, b, _c)| {
                             nearest_entity(acc, pos, (a, b.translation.truncate()))
                         })
                         .map(|f| f.0)
@@ -172,7 +172,7 @@ pub fn lumberjack_next_action(
                         target,
                     };
                 } else {
-                    if let Ok((tree_entity, tree_transform, tree)) = tree_query.get(target) {
+                    if let Ok((tree_entity, _tree_transform, tree)) = tree_query.get(target) {
                         if tree.resource >= 0 {
                             tree_chop_event.send(TreeChopEvent(tree_entity));
                             worker.wood += 1;

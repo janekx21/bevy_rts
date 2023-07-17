@@ -41,7 +41,7 @@ fn plugin_init(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn text_change(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text, With<FpsMarker>>) {
-    let mut fps = diagnostics
+    let fps = diagnostics
         .get(FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|fps_diagnostic| fps_diagnostic.average())
         .unwrap_or(0.0);

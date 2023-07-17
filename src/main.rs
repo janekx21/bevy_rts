@@ -15,13 +15,13 @@ use bevy::utils::HashMap;
 use bevy::window::PresentMode;
 use bevy::window::WindowMode;
 use bevy::window::WindowRef;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+
 use bevy_tweening::*;
 use noisy_bevy::{fbm_simplex_2d, simplex_noise_2d};
 use quadtree_rs::Quadtree;
 use soldier::SoldierPlugin;
 use soldier::SpawnSoldierEvent;
-use std::f32::consts::PI;
+
 use util::add_texture_atlas;
 use util::ease_in_out_cubic;
 use util::load_image;
@@ -239,9 +239,9 @@ impl FromWorld for SpriteSheets {
 // setups
 
 fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    _commands: Commands,
+    _asset_server: Res<AssetServer>,
+    _texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     // todo move into setup functions
 }
@@ -352,10 +352,10 @@ fn spawn_baracks(mut commands: Commands, sprite_sheets: Res<SpriteSheets>) {
 }
 
 fn setup_lumberjacks(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-    mut unit_quad_tree: ResMut<UnitQuadTree>,
+    _asset_server: Res<AssetServer>,
+    _commands: Commands,
+    _texture_atlases: ResMut<Assets<TextureAtlas>>,
+    _unit_quad_tree: ResMut<UnitQuadTree>,
     mut events: EventWriter<SpawnLumberjackEvent>,
 ) {
     let count = 10;
@@ -411,11 +411,9 @@ fn spawn_world(
                     }
                 });
 
-            if height >= 0.1 && height <= 0.3 {
-                if rand::random::<i32>() % 8 == 0 {
-                    let pos = pos + (random_vec2() * 8.0).round();
-                    spawn_tree_events.send(TreeSpawnEvent { pos })
-                }
+            if (0.1..=0.3).contains(&height) && rand::random::<i32>() % 8 == 0 {
+                let pos = pos + (random_vec2() * 8.0).round();
+                spawn_tree_events.send(TreeSpawnEvent { pos })
             }
         }
     }
@@ -478,9 +476,9 @@ fn button_style(
 
 fn lumberjack_spawn_button(
     query: Query<&Interaction, (Changed<Interaction>, With<SpawnButton>)>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+    _commands: Commands,
+    _asset_server: Res<AssetServer>,
+    _texture_atlases: ResMut<Assets<TextureAtlas>>,
     mut event: EventWriter<SpawnSoldierEvent>,
 ) {
     for interaction in query.iter() {
@@ -632,7 +630,7 @@ fn cursor_world_position(
     // check if the cursor is inside the window and get its position
     if let Some(screen_pos) = window.cursor_position() {
         // get the size of the window
-        let window_size = Vec2::new(window.width() as f32, window.height() as f32);
+        let window_size = Vec2::new(window.width(), window.height());
         // convert screen position [0..resolution] to ndc [-1..1] (gpu coordinates)
         let ndc = (screen_pos / window_size) * 2.0 - Vec2::ONE;
         // matrix for undoing the projection and camera transform
