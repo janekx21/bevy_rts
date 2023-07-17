@@ -108,7 +108,7 @@ fn main() {
         )
         .add_plugin(TweeningPlugin)
         .add_plugin(FpsPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        // .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(SoldierPlugin)
         .add_plugin(UnitPlugin)
         .add_plugin(LumberjackPlugin)
@@ -579,6 +579,17 @@ fn fullscreen_toggle(keys: Res<Input<KeyCode>>, mut windows: Query<&mut Window>)
         };
     }
 }
+
+// fn inspector_toggle(keys: Res<Input<KeyCode>>) {
+//     if keys.just_pressed(KeyCode::F11) {
+//         let mut window = windows.single_mut();
+//         window.mode = if window.mode == WindowMode::Windowed {
+//             WindowMode::BorderlessFullscreen
+//         } else {
+//             WindowMode::Windowed
+//         };
+//     }
+// }
 
 fn tree_death(
     mut query: Query<(Entity, &mut Tree)>,
